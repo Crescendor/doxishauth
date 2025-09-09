@@ -1,7 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v7.2 - Nihai API Uç Noktası v2 Düzeltmesi
+ * Gelişmiş Sunucu Kodu (Backend) v7.3 - Nihai API Uç Noktası v1 Düzeltmesi
  * Bu kod, Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Kullanıcı bilgisi API uç noktası, en güncel ve doğru olan `v2` adresine güncellendi.
+ * Kullanıcı bilgisi API uç noktası, en kararlı ve doğru olan `v1` adresine geri döndürüldü.
+ * Kullanıcı adı tespiti daha esnek hale getirildi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -222,8 +223,8 @@ async function checkKickSubscription(accessToken, streamerSlug) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
     };
 
-    // NİHAİ DÜZELTME: API adresi dokümanda da belirtilen `v2`'ye güncellendi.
-    const userApiUrl = `https://kick.com/api/v2/user`;
+    // NİHAİ DÜZELTME v7.3: API adresi v1'e geri döndürüldü ve slug yerine username kullanılacak.
+    const userApiUrl = `https://kick.com/api/v1/user`;
     const userResponse = await fetch(userApiUrl, { headers: kickApiHeaders });
 
     if (!userResponse.ok) {
@@ -232,11 +233,13 @@ async function checkKickSubscription(accessToken, streamerSlug) {
     }
 
     const user = await userResponse.json();
-    if (!user || !user.slug) {
-        throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
+    const userIdentifier = user.username || user.slug; // Önce username'i, yoksa slug'ı dene
+
+    if (!user || !userIdentifier) {
+        throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı ('username' veya 'slug') bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
     }
 
-    const subApiUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`;
+    const subApiUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${userIdentifier}`;
     const subResponse = await fetch(subApiUrl, { headers: kickApiHeaders });
 
     if (subResponse.status !== 200 && subResponse.status !== 404) {
