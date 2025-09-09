@@ -1,8 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v7.3 - Nihai API Uç Noktası v1 Düzeltmesi
- * Bu kod, Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Kullanıcı bilgisi API uç noktası, en kararlı ve doğru olan `v1` adresine geri döndürüldü.
- * Kullanıcı adı tespiti daha esnek hale getirildi.
+ * Gelişmiş Sunucu Kodu (Backend) v7.4 - Nihai API Cevap İşleme Düzeltmesi
+ * Bu kod, Kick API'sinin tutarsız "Content-Type" başlığına rağmen, gelen cevabı
+ * JSON olarak işlemeye çalışacak şekilde güncellenmiştir. Bu, "beklenen JSON cevabı
+ * yerine HTML alındı" hatasını çözmek için tasarlanmıştır.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -223,7 +223,6 @@ async function checkKickSubscription(accessToken, streamerSlug) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
     };
 
-    // NİHAİ DÜZELTME v7.3: API adresi v1'e geri döndürüldü ve slug yerine username kullanılacak.
     const userApiUrl = `https://kick.com/api/v1/user`;
     const userResponse = await fetch(userApiUrl, { headers: kickApiHeaders });
 
@@ -232,14 +231,16 @@ async function checkKickSubscription(accessToken, streamerSlug) {
         throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (URL: ${userApiUrl}).\nDurum Kodu: ${userResponse.status}.\nGelen Cevap: ${errorText}`);
     }
 
-    const contentType = userResponse.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-        const responseText = await userResponse.text();
-        throw new Error(`Kick API'sinden beklenen JSON cevabı yerine HTML alındı (URL: ${userApiUrl}).\n\nGelen Sayfa İçeriği:\n${responseText}`);
+    // NİHAİ DÜZELTME v7.4: Content-Type kontrolü yerine doğrudan JSON parse denemesi
+    let user;
+    const responseText = await userResponse.text();
+    try {
+        user = JSON.parse(responseText);
+    } catch (e) {
+        throw new Error(`Kick API'sinden gelen cevap JSON formatında değil (URL: ${userApiUrl}).\n\nGelen Ham Metin:\n${responseText}`);
     }
 
-    const user = await userResponse.json();
-    const userIdentifier = user.username || user.slug; // Önce username'i, yoksa slug'ı dene
+    const userIdentifier = user.username || user.slug;
 
     if (!user || !userIdentifier) {
         throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı ('username' veya 'slug') bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
