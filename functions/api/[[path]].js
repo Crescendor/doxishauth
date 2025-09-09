@@ -1,7 +1,9 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v5.3 - Nihai Teşhis Aracı
- * Bu kod, Kick API'sinden gelen ham ve filtrelenmemiş hata cevabını doğrudan tarayıcıda göstererek
- * "Kullanıcı bilgisi alınamadı" hatasının kök nedenini kesin olarak teşhis etmek için tasarlanmıştır.
+ * Gelişmiş Sunucu Kodu (Backend) v5.0 - Nihai Kick Çözümü (Dokümana Göre)
+ * Bu kod, kullanıcının sağladığı son teknik dokümandaki tüm kurallara uyarak,
+ * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
+ * Tüm Kick OAuth2 işlemleri `id.kick.com` üzerinden yapılır.
+ * Kurşun geçirmez hata raporlama sistemi içerir.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -12,7 +14,7 @@ function generateCodeVerifier() {
 async function generateCodeChallenge(verifier) {
     const encoder = new TextEncoder();
     const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest('SHA-265', data);
+    const digest = await crypto.subtle.digest('SHA-256', data);
     return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
@@ -85,6 +87,7 @@ async function handleRequest(context) {
                         const codeChallenge = await generateCodeChallenge(codeVerifier);
                         stateToStoreInCookie.codeVerifier = codeVerifier;
                         
+                        // DOKÜMANDAN ALINAN DOĞRU BİLGİLER
                         authUrl = new URL('https://id.kick.com/oauth/authorize');
                         authUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
                         authUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
@@ -183,6 +186,7 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
             redirect_uri: `${env.APP_URL}/api/auth/callback/discord`,
         });
     } else if (provider === 'kick') {
+        // DOKÜMANDAN ALINAN DOĞRU BİLGİLER
         tokenUrl = 'https://id.kick.com/oauth/token';
         body = new URLSearchParams({
             client_id: env.KICK_CLIENT_ID, client_secret: env.KICK_CLIENT_SECRET,
@@ -222,38 +226,23 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    
-    const userApiUrl = 'https://api.kick.com/api/v1/user';
-    const userResponse = await fetch(userApiUrl, {
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Accept': 'application/json'
-        }
-    });
-
+    const userResponse = await fetch('https://api.kick.com/api/v2/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
     if (!userResponse.ok) {
         const errorText = await userResponse.text();
-        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (URL: ${userApiUrl}).\nDurum Kodu: ${userResponse.status}.\nGelen Cevap: ${errorText}`);
+        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı. Cevap: ${errorText}`);
     }
-
     const user = await userResponse.json();
-    if (!user || !user.slug) {
-        throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
-    }
-
-    const subApiUrl = `https://api.kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`;
-    const subResponse = await fetch(subApiUrl, {
+    if (!user.slug) throw new Error("Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.");
+    const subResponse = await fetch(`https://api.kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`, {
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Accept': 'application/json'
         }
     });
-
     if (subResponse.status !== 200 && subResponse.status !== 404) {
         const errorText = await subResponse.text();
-        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü (URL: ${subApiUrl}).\nDurum Kodu: ${subResponse.status}.\nGelen Cevap: ${errorText}`);
+        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü: ${subResponse.status}. Cevap: ${errorText}`);
     }
-
     return subResponse.status === 200;
 }
 
