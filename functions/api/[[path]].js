@@ -1,7 +1,7 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v3.0 - Nihai Kick Çözümü (PKCE Destekli)
+ * Gelişmiş Sunucu Kodu (Backend) v3.1 - Gelişmiş Hata Raporlama
  * Bu kod, Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Tüm Kick OAuth2 işlemleri artık dokümanda belirtildiği gibi `id.kick.com` üzerinden yapılmaktadır.
+ * "Internal Server Error" durumunda, sorunun kaynağını göstermek için detaylı hata raporu sunar.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -112,16 +112,15 @@ async function handleRequest(context) {
                     authUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/discord`);
                     authUrl.searchParams.set('scope', 'identify guilds.members.read');
                 } else if (provider === 'kick') {
-                    // YENİLİK: Kick için PKCE akışı eklendi.
                     const codeVerifier = generateCodeVerifier();
                     const codeChallenge = await generateCodeChallenge(codeVerifier);
                     
-                    state.codeVerifier = codeVerifier; // Verifier'ı state'e ekleyip cookie'de sakla
+                    state.codeVerifier = codeVerifier;
 
                     authUrl = new URL('https://id.kick.com/oauth/authorize');
                     authUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
                     authUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
-                    authUrl.searchParams.set('scope', 'user:read:subscriptions');
+                    authUrl.searchScope.set('scope', 'user:read:subscriptions');
                     authUrl.searchParams.set('code_challenge', codeChallenge);
                     authUrl.searchParams.set('code_challenge_method', 'S256');
                 } else {
@@ -163,10 +162,20 @@ async function handleRequest(context) {
                         isSubscribed = await checkKickSubscription(tokenData.access_token, streamer);
                     }
                 } catch(error) {
+                    // YENİLİK: Artık hata durumunda yönlendirme yapmak yerine,
+                    // hatanın detaylarını içeren bir JSON cevabı döndürüyoruz.
                     console.error(`OAuth callback error for ${provider}:`, error);
-                    const redirectUrl = new URL(`/${streamer}`, env.APP_URL);
-                    redirectUrl.searchParams.set('error', 'authentication_failed');
-                    return Response.redirect(redirectUrl.toString(), 302);
+                    const errorBody = {
+                        message: "Authentication failed during the callback phase.",
+                        error: {
+                            message: error.message,
+                            stack: error.stack,
+                        }
+                    };
+                    return new Response(JSON.stringify(errorBody, null, 2), {
+                        status: 500,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
                 }
 
                 const redirectUrl = new URL(`/${streamer}`, env.APP_URL);
@@ -193,7 +202,6 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
             redirect_uri: `${env.APP_URL}/api/auth/callback/discord`,
         });
     } else if (provider === 'kick') {
-        // YENİLİK: Token URL'si id.kick.com olarak güncellendi ve body'ye code_verifier eklendi.
         tokenUrl = 'https://id.kick.com/oauth/token';
         body = new URLSearchParams({
             client_id: env.KICK_CLIENT_ID, client_secret: env.KICK_CLIENT_SECRET,
@@ -210,8 +218,8 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
     });
     
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`${provider} token exchange failed: ${JSON.stringify(error)}`);
+        const errorText = await response.text();
+        throw new Error(`${provider} token exchange failed with status ${response.status}: ${errorText}`);
     }
     return response.json();
 }
