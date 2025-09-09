@@ -1,8 +1,7 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v5.2 - Abonelik Kontrolü Düzeltmesi
- * Bu kod, kullanıcının sağladığı son teknik dokümandaki tüm kurallara uyarak,
- * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Abonelik kontrolü API isteğine, kimlik doğrulaması için zorunlu olan 'Authorization' başlığı eklendi.
+ * Gelişmiş Sunucu Kodu (Backend) v5.3 - Nihai Teşhis Aracı
+ * Bu kod, Kick API'sinden gelen ham ve filtrelenmemiş hata cevabını doğrudan tarayıcıda göstererek
+ * "Kullanıcı bilgisi alınamadı" hatasının kök nedenini kesin olarak teşhis etmek için tasarlanmıştır.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -13,7 +12,7 @@ function generateCodeVerifier() {
 async function generateCodeChallenge(verifier) {
     const encoder = new TextEncoder();
     const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
+    const digest = await crypto.subtle.digest('SHA-265', data);
     return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
@@ -223,22 +222,38 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    const userResponse = await fetch('https://api.kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
-    if (!userResponse.ok) throw new Error("Kick API'sinden kullanıcı bilgisi alınamadı.");
-    const user = await userResponse.json();
-    if (!user.slug) throw new Error("Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.");
     
-    // NİHAİ DÜZELTME: Abonelik kontrolü API isteğine Authorization başlığı eklendi.
-    const subResponse = await fetch(`https://api.kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`, {
+    const userApiUrl = 'https://api.kick.com/api/v1/user';
+    const userResponse = await fetch(userApiUrl, {
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Accept': 'application/json'
         }
     });
-    
-    if (subResponse.status !== 200 && subResponse.status !== 404) {
-        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü: ${subResponse.status}`);
+
+    if (!userResponse.ok) {
+        const errorText = await userResponse.text();
+        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (URL: ${userApiUrl}).\nDurum Kodu: ${userResponse.status}.\nGelen Cevap: ${errorText}`);
     }
+
+    const user = await userResponse.json();
+    if (!user || !user.slug) {
+        throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
+    }
+
+    const subApiUrl = `https://api.kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`;
+    const subResponse = await fetch(subApiUrl, {
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json'
+        }
+    });
+
+    if (subResponse.status !== 200 && subResponse.status !== 404) {
+        const errorText = await subResponse.text();
+        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü (URL: ${subApiUrl}).\nDurum Kodu: ${subResponse.status}.\nGelen Cevap: ${errorText}`);
+    }
+
     return subResponse.status === 200;
 }
 
