@@ -1,9 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v5.0 - Nihai Kick Çözümü (Dokümana Göre)
+ * Gelişmiş Sunucu Kodu (Backend) v5.1 - API Adres Düzeltmesi
  * Bu kod, kullanıcının sağladığı son teknik dokümandaki tüm kurallara uyarak,
  * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Tüm Kick OAuth2 işlemleri `id.kick.com` üzerinden yapılır.
- * Kurşun geçirmez hata raporlama sistemi içerir.
+ * Kullanıcı bilgisi ve abonelik kontrolü için `api.kick.com` adresi kullanılacak şekilde güncellendi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -224,11 +223,13 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    const userResponse = await fetch('https://kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
+    // DÜZELTME: API adresi `api.kick.com` olarak güncellendi.
+    const userResponse = await fetch('https://api.kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
     if (!userResponse.ok) throw new Error("Kick API'sinden kullanıcı bilgisi alınamadı.");
     const user = await userResponse.json();
     if (!user.slug) throw new Error("Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.");
-    const subResponse = await fetch(`https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`);
+    // DÜZELTME: API adresi `api.kick.com` olarak güncellendi.
+    const subResponse = await fetch(`https://api.kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`);
     if (subResponse.status !== 200 && subResponse.status !== 404) {
         throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü: ${subResponse.status}`);
     }
