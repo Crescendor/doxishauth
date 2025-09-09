@@ -1,112 +1,92 @@
 /**
- * Sunucu tarafı fonksiyonu (Backend)
- * Bu kod Cloudflare sunucularında çalışır, tarayıcıda değil.
- * Veritabanı işlemleri ve gizli şifre kontrolü burada yapılır.
+ * Gelişmiş Sunucu Kodu (Backend)
+ * Bu kod Cloudflare sunucularında çalışır.
+ * Giriş yapma, yayıncı ekleme, silme, listeleme ve tekil veri getirme işlemlerini yönetir.
+ * Artık veritabanında JSON objeleri saklar.
  */
-export async function onRequest(context) {
-    // context objesinden gerekli bilgileri alıyoruz.
-    // env: Gizli değişkenler (şifre) ve veritabanı bağlantısı
-    // request: Kullanıcıdan gelen istek (GET, POST vs.)
-    // params: URL'deki dinamik kısımlar
-    const {
-        request,
-        env,
-        params
-    } = context;
-
-    // Gelen isteğin URL'sini alıp basitleştiriyoruz
+async function handleRequest(context) {
+    const { request, env, params } = context;
     const url = new URL(request.url);
-    const path = url.pathname;
+    const pathSegments = url.pathname.split('/').filter(Boolean); // e.g., ['api', 'streamers', 'elraenn']
 
-    // Veritabanı ve admin şifresini ortam değişkenlerinden alıyoruz
     const db = env.STREAMERS;
     const adminPassword = env.ADMIN_PASSWORD;
 
-    // Sadece /api/streamers adresine gelen istekleri dinleyeceğiz
-    if (path.startsWith('/api/streamers')) {
-        // --- YAYINCI LİSTESİNİ GETİRME (GET isteği) ---
-        if (request.method === 'GET') {
-            try {
-                // Veritabanındaki tüm anahtarları (yayıncı adlarını) listele
-                const {
-                    keys
-                } = await db.list();
-                const streamerSlugs = keys.map(key => key.name);
-                // Listeyi JSON formatında geri gönder
-                return new Response(JSON.stringify({
-                    streamers: streamerSlugs
-                }), {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    status: 200
-                });
-            } catch (error) {
-                console.error("KV Error:", error);
-                return new Response(JSON.stringify({
-                    error: 'Veritabanına erişirken bir hata oluştu.'
-                }), {
-                    status: 500
-                });
+    // --- API Rotaları ---
+    
+    // Rota: /api/login
+    if (pathSegments[0] === 'api' && pathSegments[1] === 'login' && request.method === 'POST') {
+        try {
+            const { password } = await request.json();
+            if (adminPassword && password === adminPassword) {
+                return new Response(JSON.stringify({ success: true }), { status: 200 });
+            } else {
+                return new Response(JSON.stringify({ error: 'Invalid password' }), { status: 401 });
             }
+        } catch (e) {
+            return new Response(JSON.stringify({ error: 'Bad request' }), { status: 400 });
         }
-
-        // --- YENİ YAYINCI EKLEME (POST isteği) ---
-        if (request.method === 'POST') {
-            try {
-                const {
-                    slug,
-                    password
-                } = await request.json();
-
-                // Admin şifresi kontrolü
-                if (!adminPassword || password !== adminPassword) {
-                    return new Response(JSON.stringify({
-                        error: 'Yetkisiz işlem: Geçersiz şifre.'
-                    }), {
-                        status: 401
-                    });
-                }
-
-                // Gelen yayıncı adı geçerli mi kontrolü
-                if (!slug || slug.length < 3) {
-                    return new Response(JSON.stringify({
-                        error: 'Geçersiz yayıncı adı.'
-                    }), {
-                        status: 400
-                    });
-                }
-                
-                // Yeni yayıncıyı veritabanına ekle
-                await db.put(slug, 'true');
-
-                // Başarılı olduğuna dair cevap gönder
-                return new Response(JSON.stringify({
-                    success: true,
-                    slug: slug
-                }), {
-                    status: 200
-                });
-
-            } catch (error) {
-                 console.error("Post request error:", error);
-                 return new Response(JSON.stringify({
-                    error: 'İstek işlenirken bir hata oluştu.'
-                }), {
-                    status: 500
-                });
-            }
-        }
-
-        // Desteklenmeyen bir metod ise hata ver
-        return new Response('Method Not Allowed', {
-            status: 405
-        });
     }
 
-    // Eğer /api/streamers dışında bir adrese istek gelirse 404 hatası ver
-    return new Response('Not Found', {
-        status: 404
-    });
+    // Rota: /api/streamers (Tüm yayıncıları listeleme)
+    if (pathSegments[0] === 'api' && pathSegments[1] === 'streamers' && !pathSegments[2] && request.method === 'GET') {
+        try {
+            const list = await db.list();
+            const streamers = [];
+            for (const key of list.keys) {
+                const value = await db.get(key.name);
+                if (value) {
+                    streamers.push({ slug: key.name, ...JSON.parse(value) });
+                }
+            }
+            return new Response(JSON.stringify(streamers), { headers: { 'Content-Type': 'application/json' }});
+        } catch (e) {
+            return new Response(JSON.stringify({ error: 'Could not fetch streamers' }), { status: 500 });
+        }
+    }
+
+    // Rota: /api/streamers/:slug (Tek bir yayıncıyı getirme)
+    if (pathSegments[0] === 'api' && pathSegments[1] === 'streamers' && pathSegments[2] && request.method === 'GET') {
+        const slug = pathSegments[2];
+        const value = await db.get(slug);
+        if (value === null) {
+            return new Response(JSON.stringify({ error: 'Streamer not found' }), { status: 404 });
+        }
+        return new Response(JSON.stringify({ slug, ...JSON.parse(value) }), { headers: { 'Content-Type': 'application/json' }});
+    }
+
+    // Rota: /api/streamers (Yeni yayıncı ekleme)
+    if (pathSegments[0] === 'api' && pathSegments[1] === 'streamers' && request.method === 'POST') {
+        try {
+            const { slug, displayText, password } = await request.json();
+            if (password !== adminPassword) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+            if (!slug || !displayText) return new Response(JSON.stringify({ error: 'Slug and display text are required' }), { status: 400 });
+
+            const data = JSON.stringify({ displayText });
+            await db.put(slug, data);
+            return new Response(JSON.stringify({ success: true }), { status: 201 });
+        } catch (e) {
+            return new Response(JSON.stringify({ error: 'Bad request' }), { status: 400 });
+        }
+    }
+    
+    // Rota: /api/streamers/:slug (Yayıncı silme)
+    if (pathSegments[0] === 'api' && pathSegments[1] === 'streamers' && pathSegments[2] && request.method === 'DELETE') {
+        try {
+            const slug = pathSegments[2];
+            const { password } = await request.json();
+            if (password !== adminPassword) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+
+            await db.delete(slug);
+            return new Response(JSON.stringify({ success: true }), { status: 200 });
+        } catch (e) {
+            return new Response(JSON.stringify({ error: 'Bad request' }), { status: 400 });
+        }
+    }
+
+    // Eşleşen rota yoksa
+    return new Response('Not Found', { status: 404 });
 }
+
+export const onRequest = handleRequest;
 
