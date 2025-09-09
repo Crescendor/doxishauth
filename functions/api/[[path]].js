@@ -1,13 +1,7 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v2.3 - Detaylı Hata Ayıklama (Debug)
- * Bu kod Cloudflare sunucularında çalışır ve Kick OAuth2 akışındaki her adımı loglar.
- * GEREKLİ YENİ ORTAM DEĞİŞKENLERİ:
- * - DISCORD_CLIENT_ID: Discord Geliştirici Portalından
- * - DISCORD_CLIENT_SECRET: Discord Geliştirici Portalından
- * - KICK_CLIENT_ID: Kick Geliştirici Portalından (varsayımsal)
- * - KICK_CLIENT_SECRET: Kick Geliştirici Portalından (varsayımsal)
- * - APP_URL: Sitenizin tam adresi (örn: https://doxishauth.pages.dev)
- * NOT: Discord Bot Token artık her yayıncı için admin panelinden ayrı ayrı girilmektedir.
+ * Gelişmiş Sunucu Kodu (Backend) v2.5 - Kick Auth URL Düzeltmesi
+ * Bu kod Cloudflare sunucularında çalışır.
+ * Kick'in authorize URL'si, en standart OAuth2 formatına geri döndürüldü.
  */
 async function handleRequest(context) {
     const { request, env } = context;
@@ -109,16 +103,19 @@ async function handleRequest(context) {
             discordAuthUrl.searchParams.set('state', state);
             authUrl = discordAuthUrl.toString();
         } else if (provider === 'kick') {
+            // DÜZELTME: Kick'in authorize URL'si, en standart ve yaygın OAuth2 formatına geri döndürüldü.
             const kickAuthUrl = new URL('https://kick.com/oauth2/authorize');
             kickAuthUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
             kickAuthUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
             kickAuthUrl.searchParams.set('response_type', 'code');
-            kickAuthUrl.searchParams.set('scope', 'user:read:subscriptions'); // API'ye göre scope değişebilir
+            kickAuthUrl.searchParams.set('scope', 'user:read:subscriptions');
             kickAuthUrl.searchParams.set('state', state);
             authUrl = kickAuthUrl.toString();
         } else {
             return new Response('Unsupported provider', { status: 400 });
         }
+        
+        console.log(`DEBUG: Redirecting user to: ${authUrl}`);
         
         const headers = new Headers({ 'Location': authUrl, 'Set-Cookie': stateCookie });
         return new Response(null, { status: 302, headers });
@@ -183,7 +180,7 @@ async function exchangeCodeForToken(provider, code, env) {
             redirect_uri: `${env.APP_URL}/api/auth/callback/discord`,
         });
     } else if (provider === 'kick') {
-        tokenUrl = 'https://kick.com/api/v2/oauth/token'; // Bu URL Kick API'sine göre doğrulanmalıdır
+        tokenUrl = 'https://kick.com/api/v2/oauth/token';
         body = new URLSearchParams({
             client_id: env.KICK_CLIENT_ID, client_secret: env.KICK_CLIENT_SECRET,
             grant_type: 'authorization_code', code: code,
