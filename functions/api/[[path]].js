@@ -1,8 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v8.0 - Nihai Kick API Versiyonlama Çözümü
- * Bu kod, Kick API'sinin v1 ve v2 versiyonları arasındaki belirsizliği çözmek için
- * her iki kullanıcı bilgisi uç noktasını da dener. Bu, "boş cevap" sorununu
- * kesin olarak çözmek için tasarlanmıştır.
+ * Gelişmiş Sunucu Kodu (Backend) v7.3 - Nihai API Uç Noktası v1 Düzeltmesi
+ * Bu kod, Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
+ * Kullanıcı bilgisi API uç noktası, en kararlı ve doğru olan `v1` adresine geri döndürüldü.
+ * Kullanıcı adı tespiti daha esnek hale getirildi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -214,59 +214,36 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
     return member.roles.includes(discordRoleId);
 }
 
-// NİHAİ DÜZELTME v8.0: API versiyon belirsizliğini gidermek için hem v2 hem de v1 deneniyor.
-async function getKickUser(accessToken) {
-    const kickApiHeaders = {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
-    };
-
-    // Önce en güncel olduğu varsayılan v2'yi dene
-    const v2ApiUrl = `https://kick.com/api/v2/user`;
-    let response = await fetch(v2ApiUrl, { headers: kickApiHeaders });
-    
-    if (response.ok) {
-        const user = await response.json();
-        if (user && (user.slug || user.username)) {
-            return user; // Başarılı, kullanıcıyı döndür
-        }
-    }
-
-    // v2 başarısız olursa veya boş cevap verirse, v1'i dene
-    const v1ApiUrl = `https://kick.com/api/v1/user`;
-    response = await fetch(v1ApiUrl, { headers: kickApiHeaders });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (v1 & v2 denendi).\nSon Hata (v1): Durum Kodu: ${response.status}. Cevap: ${errorText}`);
-    }
-    
-    const user = await response.json();
-    if (user && (user.slug || user.username)) {
-        return user; // Başarılı, kullanıcıyı döndür
-    }
-
-    // Her ikisi de başarısız olursa
-    throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı bulunamadı (v1 & v2 denendi).\nSon Cevap (v1): ${JSON.stringify(user)}`);
-}
-
-
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
     
-    const user = await getKickUser(accessToken);
-    const userIdentifier = user.username || user.slug;
-
-    if (!userIdentifier) {
-        throw new Error(`Kullanıcı kimliği (username/slug) alınamadı.`);
-    }
-
     const kickApiHeaders = {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
     };
+
+    // NİHAİ DÜZELTME v7.3: API adresi v1'e geri döndürüldü ve slug yerine username kullanılacak.
+    const userApiUrl = `https://kick.com/api/v1/user`;
+    const userResponse = await fetch(userApiUrl, { headers: kickApiHeaders });
+
+    if (!userResponse.ok) {
+        const errorText = await userResponse.text();
+        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (URL: ${userApiUrl}).\nDurum Kodu: ${userResponse.status}.\nGelen Cevap: ${errorText}`);
+    }
+
+    const contentType = userResponse.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        const responseText = await userResponse.text();
+        throw new Error(`Kick API'sinden beklenen JSON cevabı yerine HTML alındı (URL: ${userApiUrl}).\n\nGelen Sayfa İçeriği:\n${responseText}`);
+    }
+
+    const user = await userResponse.json();
+    const userIdentifier = user.username || user.slug; // Önce username'i, yoksa slug'ı dene
+
+    if (!user || !userIdentifier) {
+        throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı ('username' veya 'slug') bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
+    }
 
     const subApiUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${userIdentifier}`;
     const subResponse = await fetch(subApiUrl, { headers: kickApiHeaders });
