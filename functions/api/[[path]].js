@@ -1,6 +1,6 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v2.2 - Dinamik Discord Bot Token
- * Bu kod Cloudflare sunucularında çalışır.
+ * Gelişmiş Sunucu Kodu (Backend) v2.3 - Detaylı Hata Ayıklama (Debug)
+ * Bu kod Cloudflare sunucularında çalışır ve Kick OAuth2 akışındaki her adımı loglar.
  * GEREKLİ YENİ ORTAM DEĞİŞKENLERİ:
  * - DISCORD_CLIENT_ID: Discord Geliştirici Portalından
  * - DISCORD_CLIENT_SECRET: Discord Geliştirici Portalından
@@ -109,7 +109,6 @@ async function handleRequest(context) {
             discordAuthUrl.searchParams.set('state', state);
             authUrl = discordAuthUrl.toString();
         } else if (provider === 'kick') {
-            // DÜZELTME: Kick'in authorize URL'si, 404 hatasını önlemek için daha standart bir formata güncellendi.
             const kickAuthUrl = new URL('https://kick.com/oauth2/authorize');
             kickAuthUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
             kickAuthUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
@@ -135,6 +134,7 @@ async function handleRequest(context) {
         const cookie = request.headers.get('Cookie');
         const storedStateJSON = cookie ? decodeURIComponent(cookie.match(/oauth_state=([^;]+)/)?.[1] || '') : null;
         if (!state || !storedStateJSON || state !== storedStateJSON) {
+            console.error("DEBUG: State mismatch or not found.", {state, storedStateJSON});
             return new Response('Invalid state parameter.', { status: 403 });
         }
 
@@ -147,11 +147,14 @@ async function handleRequest(context) {
                 const streamerInfo = JSON.parse(await db.get(streamer));
                 isSubscribed = await checkDiscordSubscription(tokenData.access_token, streamerInfo.discordGuildId, streamerInfo.discordRoleId, streamerInfo.discordBotToken);
             } else if (provider === 'kick') {
+                console.log("DEBUG: Kick callback received. Attempting to exchange code for token.");
                 const tokenData = await exchangeCodeForToken(provider, code, env);
+                console.log("DEBUG: Kick token received successfully. Token data keys:", Object.keys(tokenData).join(', '));
                 isSubscribed = await checkKickSubscription(tokenData.access_token, streamer);
+                console.log(`DEBUG: Kick subscription check for '${streamer}' resulted in: ${isSubscribed}`);
             }
         } catch(error) {
-            console.error(`OAuth callback error for ${provider}:`, error);
+            console.error(`DEBUG: OAuth callback error for ${provider}:`, error.message, error.stack);
             const redirectUrl = new URL(`/${streamer}`, env.APP_URL);
             redirectUrl.searchParams.set('error', 'authentication_failed');
             return Response.redirect(redirectUrl.toString(), 302);
@@ -193,12 +196,15 @@ async function exchangeCodeForToken(provider, code, env) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body,
     });
+    
+    const responseData = await response.json();
 
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`${provider} token exchange failed: ${JSON.stringify(error)}`);
+        console.error(`DEBUG: ${provider} token exchange failed. Status: ${response.status}. Response:`, JSON.stringify(responseData));
+        throw new Error(`${provider} token exchange failed: ${JSON.stringify(responseData)}`);
     }
-    return response.json();
+    console.log(`DEBUG: ${provider} token exchange successful.`);
+    return responseData;
 }
 
 async function checkDiscordSubscription(accessToken, guildId, roleId, botToken) {
@@ -219,12 +225,12 @@ async function checkDiscordSubscription(accessToken, guildId, roleId, botToken) 
     return member.roles.includes(roleId);
 }
 
-// YENİ: Kick API'sini kullanarak kullanıcının aboneliğini kontrol eder.
+
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
 
     try {
-        // 1. Access token ile giriş yapmış kullanıcının bilgilerini al (API endpoint: /api/v1/user)
+        console.log("DEBUG: Fetching Kick user info...");
         const userResponse = await fetch('https://kick.com/api/v1/user', {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -233,35 +239,40 @@ async function checkKickSubscription(accessToken, streamerSlug) {
         });
 
         if (!userResponse.ok) {
-            console.error('Kick user info fetch failed:', await userResponse.text());
+            const errorText = await userResponse.text();
+            console.error('DEBUG: Kick user info fetch failed. Status:', userResponse.status, 'Response:', errorText);
             return false;
         }
         const user = await userResponse.json();
-        const userSlug = user.slug; // veya user.username, API cevabına göre
+        console.log("DEBUG: Kick user info received:", JSON.stringify(user));
+        const userSlug = user.slug;
 
         if (!userSlug) {
-            console.error('Kullanıcı adı Kick API yanıtından alınamadı.');
+            console.error('DEBUG: Kullanıcı adı (slug) Kick API yanıtından alınamadı.');
             return false;
         }
+        console.log(`DEBUG: Extracted user slug: ${userSlug}`);
 
-        // 2. Kullanıcının, hedef kanala abone olup olmadığını kontrol et (API endpoint: /api/v2/channels/{channel}/subscribers/{user})
-        const subscriptionResponse = await fetch(`https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${userSlug}`, {
+        const subscriptionUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${userSlug}`;
+        console.log(`DEBUG: Checking Kick subscription at: ${subscriptionUrl}`);
+        const subscriptionResponse = await fetch(subscriptionUrl, {
             headers: { 'Accept': 'application/json' }
         });
 
-        // 200 OK -> Abone. 404 Not Found -> Abone değil.
+        console.log(`DEBUG: Kick subscription response status: ${subscriptionResponse.status}`);
+
         if (subscriptionResponse.status === 200) {
             return true;
         } else if (subscriptionResponse.status === 404) {
             return false;
         } else {
-            // Diğer durumlar (API hatası vb.)
-            console.error(`Kick abonelik kontrolü ${subscriptionResponse.status} durumuyla başarısız oldu:`, await subscriptionResponse.text());
+            const errorText = await subscriptionResponse.text();
+            console.error(`DEBUG: Kick abonelik kontrolü ${subscriptionResponse.status} durumuyla başarısız oldu:`, errorText);
             return false;
         }
 
     } catch (error) {
-        console.error('checkKickSubscription sırasında hata:', error);
+        console.error('DEBUG: checkKickSubscription sırasında kritik hata:', error.message, error.stack);
         return false;
     }
 }
