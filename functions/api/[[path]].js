@@ -233,4 +233,3 @@ async function checkKickSubscription(accessToken, streamerSlug) {
 }
 
 export const onRequest = handleRequest;
-
