@@ -1,8 +1,7 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v3.3 - Daha Sağlam Güvenlik ve Hata Raporlama
- * Bu kod, Kick'in gerektirdiği PKCE güvenlik akışını tam olarak uygular.
- * "Internal Server Error" durumunda, sorunun kaynağını göstermek için basit metin tabanlı hata raporu sunar.
- * State yönetimi daha güvenli ve standartlara uygun hale getirildi.
+ * Gelişmiş Sunucu Kodu (Backend) v3.4 - Kurşun Geçirmez Hata Ayıklama
+ * Bu kod, Kick'ten geri dönüş (callback) sırasındaki her adımı ayrı ayrı test eder.
+ * Herhangi bir hata durumunda, sorunun kaynağını net bir şekilde belirten basit bir metin hatası döndürür.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -103,55 +102,69 @@ async function handleRequest(context) {
                 }
                 
                 authUrl.searchParams.set('response_type', 'code');
-                authUrl.searchParams.set('state', randomState); // URL'e sadece rastgele dizeyi gönder
+                authUrl.searchParams.set('state', randomState);
 
                 const stateCookie = `oauth_state=${encodeURIComponent(JSON.stringify(stateToStoreInCookie))}; HttpOnly; Path=/; Max-Age=600; Secure; SameSite=Lax`;
                 const headers = new Headers({ 'Location': authUrl.toString(), 'Set-Cookie': stateCookie });
                 return new Response(null, { status: 302, headers });
             }
 
+            // GÜNCELLEME: Callback rotası, hatayı kesin olarak bulmak için yeniden yazıldı.
             if (pathSegments[2] === 'callback' && pathSegments[3]) {
+                const provider = pathSegments[3];
+
+                // ADIM 1: Gerekli parametreler URL'de var mı?
+                const code = url.searchParams.get('code');
+                const stateFromUrl = url.searchParams.get('state');
+                if (!code || !stateFromUrl) {
+                    return new Response("HATA ADIM 1: Geri dönüş URL'sinde 'code' veya 'state' parametresi eksik.", { status: 400, headers: { 'Content-Type': 'text/plain' } });
+                }
+
+                // ADIM 2: Güvenlik çerezi (cookie) mevcut mu?
+                const cookie = request.headers.get('Cookie');
+                const storedStateJSON = cookie ? decodeURIComponent(cookie.match(/oauth_state=([^;]+)/)?.[1] || '') : null;
+                if (!storedStateJSON) {
+                    return new Response("HATA ADIM 2: Güvenlik çerezi bulunamadı. Lütfen tekrar giriş yapmayı deneyin.", { status: 400, headers: { 'Content-Type': 'text/plain' } });
+                }
+
+                // ADIM 3: Güvenlik anahtarları eşleşiyor mu?
+                const storedState = JSON.parse(storedStateJSON);
+                if (stateFromUrl !== storedState.random) {
+                    return new Response("HATA ADIM 3: Güvenlik anahtarları eşleşmiyor. (CSRF Koruması)", { status: 403, headers: { 'Content-Type': 'text/plain' } });
+                }
+
+                let tokenData;
                 try {
-                    const provider = pathSegments[3];
-                    const code = url.searchParams.get('code');
-                    const stateFromUrl = url.searchParams.get('state');
+                    // ADIM 4: Geçici kod, kalıcı anahtar (token) ile takas ediliyor mu?
+                    tokenData = await exchangeCodeForToken(provider, code, storedState.codeVerifier, env);
+                } catch (error) {
+                    return new Response(`HATA ADIM 4: API anahtarı (token) alınamadı.\n\nKick'ten gelen hata:\n${error.message}`, { status: 500, headers: { 'Content-Type': 'text/plain' } });
+                }
 
-                    const cookie = request.headers.get('Cookie');
-                    const storedStateJSON = cookie ? decodeURIComponent(cookie.match(/oauth_state=([^;]+)/)?.[1] || '') : null;
-                    if (!storedStateJSON) throw new Error("State cookie not found. Please try logging in again.");
-                    
-                    const storedState = JSON.parse(storedStateJSON);
-                    if (!stateFromUrl || stateFromUrl !== storedState.random) throw new Error("State mismatch. CSRF attack detected or old cookie.");
-
-                    const { streamer, codeVerifier } = storedState;
-                    const tokenData = await exchangeCodeForToken(provider, code, codeVerifier, env);
+                let isSubscribed = false;
+                try {
+                    // ADIM 5: Abonelik durumu kontrol ediliyor mu?
+                    const { streamer } = storedState;
                     const streamerInfoJSON = await db.get(streamer);
-                    if (!streamerInfoJSON) throw new Error(`Streamer '${streamer}' not found in database.`);
+                    if (!streamerInfoJSON) throw new Error(`Yayıncı '${streamer}' veritabanında bulunamadı.`);
                     
-                    const streamerInfo = JSON.parse(streamerInfoJSON);
-                    let isSubscribed = false;
-
                     if (provider === 'discord') {
-                        isSubscribed = await checkDiscordSubscription(tokenData.access_token, streamerInfo);
+                        isSubscribed = await checkDiscordSubscription(tokenData.access_token, JSON.parse(streamerInfoJSON));
                     } else if (provider === 'kick') {
                         isSubscribed = await checkKickSubscription(tokenData.access_token, streamer);
                     }
-
-                    const redirectUrl = new URL(`/${streamer}`, env.APP_URL);
-                    redirectUrl.searchParams.set('subscribed', isSubscribed);
-                    redirectUrl.searchParams.set('provider', provider);
-                    
-                    const headers = new Headers({ 'Location': redirectUrl.toString(), 'Set-Cookie': 'oauth_state=; HttpOnly; Path=/; Max-Age=0' });
-                    return new Response(null, { status: 302, headers });
-
                 } catch (error) {
-                    console.error(`OAuth callback error:`, error);
-                    // YENİLİK: Hata mesajını düz metin olarak tarayıcıda göster
-                    return new Response(`Authentication Error:\n\n${error.message}\n\nStack Trace:\n${error.stack}`, {
-                        status: 500,
-                        headers: { 'Content-Type': 'text/plain' }
-                    });
+                    return new Response(`HATA ADIM 5: Abonelik durumu kontrol edilemedi.\n\nHata detayı:\n${error.message}`, { status: 500, headers: { 'Content-Type': 'text/plain' } });
                 }
+
+                // BAŞARILI!
+                const { streamer } = storedState;
+                const redirectUrl = new URL(`/${streamer}`, env.APP_URL);
+                redirectUrl.searchParams.set('subscribed', isSubscribed);
+                redirectUrl.searchParams.set('provider', provider);
+                
+                const headers = new Headers({ 'Location': redirectUrl.toString(), 'Set-Cookie': 'oauth_state=; HttpOnly; Path=/; Max-Age=0' });
+                return new Response(null, { status: 302, headers });
             }
         }
     }
@@ -186,7 +199,7 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
     
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`${provider} token exchange failed with status ${response.status}: ${errorText}`);
+        throw new Error(errorText);
     }
     return response.json();
 }
@@ -208,17 +221,15 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    try {
-        const userResponse = await fetch('https://kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
-        if (!userResponse.ok) return false;
-        const user = await userResponse.json();
-        if (!user.slug) return false;
-        const subResponse = await fetch(`https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`);
-        return subResponse.status === 200;
-    } catch (error) {
-        console.error('checkKickSubscription error:', error);
-        return false;
+    const userResponse = await fetch('https://kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
+    if (!userResponse.ok) throw new Error("Kick API'sinden kullanıcı bilgisi alınamadı.");
+    const user = await userResponse.json();
+    if (!user.slug) throw new Error("Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.");
+    const subResponse = await fetch(`https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`);
+    if (subResponse.status !== 200 && subResponse.status !== 404) {
+        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü: ${subResponse.status}`);
     }
+    return subResponse.status === 200;
 }
 
 export const onRequest = handleRequest;
