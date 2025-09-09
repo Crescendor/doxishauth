@@ -1,7 +1,7 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v3.1 - Gelişmiş Hata Raporlama
+ * Gelişmiş Sunucu Kodu (Backend) v3.2 - Worker Çökme Düzeltmesi
  * Bu kod, Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * "Internal Server Error" durumunda, sorunun kaynağını göstermek için detaylı hata raporu sunar.
+ * "Worker threw exception" hatasına neden olan yazım hatası düzeltildi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -120,7 +120,8 @@ async function handleRequest(context) {
                     authUrl = new URL('https://id.kick.com/oauth/authorize');
                     authUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
                     authUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
-                    authUrl.searchScope.set('scope', 'user:read:subscriptions');
+                    // DÜZELTME: `searchScope` olan yazım hatası `searchParams` olarak düzeltildi.
+                    authUrl.searchParams.set('scope', 'user:read:subscriptions');
                     authUrl.searchParams.set('code_challenge', codeChallenge);
                     authUrl.searchParams.set('code_challenge_method', 'S256');
                 } else {
