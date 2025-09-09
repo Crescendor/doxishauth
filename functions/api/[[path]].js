@@ -1,8 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v8.0 - Nihai Kick API Versiyonlama Çözümü
- * Bu kod, Kick API'sinin v1 ve v2 versiyonları arasındaki belirsizliği çözmek için
- * her iki kullanıcı bilgisi uç noktasını da dener. Bu, "boş cevap" sorununu
- * kesin olarak çözmek için tasarlanmıştır.
+ * Gelişmiş Sunucu Kodu (Backend) v9.0 - Nihai Kick Güvenlik Duvarı Çözümü
+ * Bu kod, Kick API'sinin "boş cevap" sorununu çözmek için, API isteklerine
+ * 'Referer' başlığını ekleyerek kendisini normal bir tarayıcı gibi tanıtır.
+ * Bu, dokümandaki curl örneğine dayanan nihai çözümdür.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -214,55 +214,36 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
     return member.roles.includes(discordRoleId);
 }
 
-// NİHAİ DÜZELTME v8.0: API versiyon belirsizliğini gidermek için hem v2 hem de v1 deneniyor.
 async function getKickUser(accessToken) {
     const kickApiHeaders = {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+        // NİHAİ DÜZELTME v9.0: Güvenlik duvarını aşmak için 'Referer' başlığı eklendi.
+        'Referer': 'https://kick.com/'
     };
 
-    // Önce en güncel olduğu varsayılan v2'yi dene
-    const v2ApiUrl = `https://kick.com/api/v2/user`;
-    let response = await fetch(v2ApiUrl, { headers: kickApiHeaders });
-    
-    if (response.ok) {
-        const text = await response.text();
-        try {
-            const user = JSON.parse(text);
-            if (user && (user.slug || user.username)) {
-                return user; // v2 çalıştı!
-            }
-        } catch (e) {
-            // JSON değilse, bu bir HTML hata sayfası olabilir.
-            throw new Error(`Kick API (v2) JSON yerine HTML döndürdü. Sayfanın başı: ${text.substring(0, 500)}`);
-        }
+    const apiUrl = 'https://kick.com/api/v1/user';
+    const response = await fetch(apiUrl, { headers: kickApiHeaders });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (URL: ${apiUrl}).\nDurum Kodu: ${response.status}.\nGelen Cevap: ${errorText}`);
     }
     
-    // v2 başarısız olursa veya boş cevap verirse, v1'i dene
-    const v1ApiUrl = `https://kick.com/api/v1/user`;
-    response = await fetch(v1ApiUrl, { headers: kickApiHeaders });
-
-    if (response.ok) {
-        const user = await response.json();
-        if (user && (user.slug || user.username)) {
-            return user; // v1 çalıştı!
-        } else {
-             throw new Error(`Kick API (v1) kullanıcı verisi yerine boş bir cevap döndürdü. Gelen Cevap: ${JSON.stringify(user)}`);
-        }
+    const user = await response.json();
+    if (user && (user.slug || user.username)) {
+        return user;
     }
 
-    // Her ikisi de başarısız olursa
-    const errorText = await response.text();
-    throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (v1 & v2 denendi).\nSon Hata (v1): Durum Kodu: ${response.status}. Cevap: ${errorText}`);
+    throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı ('username' veya 'slug') bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
 }
-
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
     
     const user = await getKickUser(accessToken);
-    const userIdentifier = user.username || user.slug;
+    const userIdentifier = user.username || user.streamer_channel?.slug || user.slug;
 
     if (!userIdentifier) {
         throw new Error(`Kullanıcı kimliği (username/slug) alınamadı.`);
@@ -271,7 +252,9 @@ async function checkKickSubscription(accessToken, streamerSlug) {
     const kickApiHeaders = {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+        // NİHAİ DÜZELTME v9.0: Güvenlik duvarını aşmak için 'Referer' başlığı eklendi.
+        'Referer': `https://kick.com/${streamerSlug}`
     };
 
     const subApiUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${userIdentifier}`;
