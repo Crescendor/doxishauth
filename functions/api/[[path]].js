@@ -1,8 +1,7 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v7.1 - Nihai Güvenlik Duvarı Çözümü
- * Bu kod, Kick API'sinin güvenlik duvarını (WAF) aşmak için gerekli olan
- * 'User-Agent' başlığını tüm API isteklerine ekler. Bu, "Request blocked by security policy"
- * hatasını çözmek için tasarlanmıştır.
+ * Gelişmiş Sunucu Kodu (Backend) v7.2 - Nihai API Uç Noktası v2 Düzeltmesi
+ * Bu kod, Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
+ * Kullanıcı bilgisi API uç noktası, en güncel ve doğru olan `v2` adresine güncellendi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -217,14 +216,14 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
     
-    // NİHAİ DÜZELTME: API isteklerine User-Agent başlığı eklendi.
     const kickApiHeaders = {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
     };
 
-    const userApiUrl = `https://kick.com/api/v1/user`;
+    // NİHAİ DÜZELTME: API adresi dokümanda da belirtilen `v2`'ye güncellendi.
+    const userApiUrl = `https://kick.com/api/v2/user`;
     const userResponse = await fetch(userApiUrl, { headers: kickApiHeaders });
 
     if (!userResponse.ok) {
