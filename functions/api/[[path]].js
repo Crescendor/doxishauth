@@ -1,8 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v6.0 - Nihai API Uç Noktası Düzeltmesi
+ * Gelişmiş Sunucu Kodu (Backend) v7.0 - Nihai Kick Host Düzeltmesi
  * Bu kod, kullanıcının sağladığı teknik dokümandaki tüm kurallara uyarak,
  * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Kullanıcı bilgisi API uç noktası, dokümanda belirtilen doğru v1 adresine güncellendi.
+ * Tüm API istekleri, dokümandaki curl örneğine uygun olarak `kick.com` adresine yönlendirildi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -86,7 +86,6 @@ async function handleRequest(context) {
                         const codeChallenge = await generateCodeChallenge(codeVerifier);
                         stateToStoreInCookie.codeVerifier = codeVerifier;
                         
-                        // DOKÜMANDAN ALINAN DOĞRU BİLGİLER
                         authUrl = new URL('https://id.kick.com/oauth/authorize');
                         authUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
                         authUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
@@ -108,21 +107,18 @@ async function handleRequest(context) {
                 if (pathSegments[2] === 'callback' && pathSegments[3]) {
                     const provider = pathSegments[3];
 
-                    // ADIM 1: Gerekli parametreler URL'de var mı?
                     const code = url.searchParams.get('code');
                     const stateFromUrl = url.searchParams.get('state');
                     if (!code || !stateFromUrl) {
                         return new Response("HATA ADIM 1: Geri dönüş URL'sinde 'code' veya 'state' parametresi eksik.", { status: 400, headers: { 'Content-Type': 'text/plain' } });
                     }
 
-                    // ADIM 2: Güvenlik çerezi (cookie) mevcut mu?
                     const cookie = request.headers.get('Cookie');
                     const storedStateJSON = cookie ? decodeURIComponent(cookie.match(/oauth_state=([^;]+)/)?.[1] || '') : null;
                     if (!storedStateJSON) {
                         return new Response("HATA ADIM 2: Güvenlik çerezi bulunamadı. Lütfen tekrar giriş yapmayı deneyin.", { status: 400, headers: { 'Content-Type': 'text/plain' } });
                     }
 
-                    // ADIM 3: Güvenlik anahtarları eşleşiyor mu?
                     const storedState = JSON.parse(storedStateJSON);
                     if (stateFromUrl !== storedState.random) {
                         return new Response("HATA ADIM 3: Güvenlik anahtarları eşleşmiyor. (CSRF Koruması)", { status: 403, headers: { 'Content-Type': 'text/plain' } });
@@ -130,7 +126,6 @@ async function handleRequest(context) {
 
                     let tokenData;
                     try {
-                        // ADIM 4: Geçici kod, kalıcı anahtar (token) ile takas ediliyor mu?
                         tokenData = await exchangeCodeForToken(provider, code, storedState.codeVerifier, env);
                     } catch (error) {
                         return new Response(`HATA ADIM 4: API anahtarı (token) alınamadı.\n\nAPI'den gelen hata:\n${error.message}`, { status: 500, headers: { 'Content-Type': 'text/plain' } });
@@ -138,7 +133,6 @@ async function handleRequest(context) {
 
                     let isSubscribed = false;
                     try {
-                        // ADIM 5: Abonelik durumu kontrol ediliyor mu?
                         const { streamer } = storedState;
                         const streamerInfoJSON = await db.get(streamer);
                         if (!streamerInfoJSON) throw new Error(`Yayıncı '${streamer}' veritabanında bulunamadı.`);
@@ -152,7 +146,6 @@ async function handleRequest(context) {
                         return new Response(`HATA ADIM 5: Abonelik durumu kontrol edilemedi.\n\nHata detayı:\n${error.message}`, { status: 500, headers: { 'Content-Type': 'text/plain' } });
                     }
 
-                    // BAŞARILI!
                     const { streamer } = storedState;
                     const redirectUrl = new URL(`/${streamer}`, env.APP_URL);
                     redirectUrl.searchParams.set('subscribed', isSubscribed);
@@ -165,7 +158,6 @@ async function handleRequest(context) {
         }
         return new Response('Not Found', { status: 404 });
     } catch (error) {
-        // En dış katmanda hata yakalama
         console.error("KRİTİK HATA:", error);
         return new Response(`KRİTİK SUNUCU HATASI:\n\n${error.message}\n\nStack Trace:\n${error.stack}`, {
             status: 500,
@@ -185,7 +177,6 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
             redirect_uri: `${env.APP_URL}/api/auth/callback/discord`,
         });
     } else if (provider === 'kick') {
-        // DOKÜMANDAN ALINAN DOĞRU BİLGİLER
         tokenUrl = 'https://id.kick.com/oauth/token';
         body = new URLSearchParams({
             client_id: env.KICK_CLIENT_ID, client_secret: env.KICK_CLIENT_SECRET,
@@ -225,24 +216,39 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    // NİHAİ DÜZELTME: API adresi dokümanda belirtilen `v1`'e güncellendi.
-    const userResponse = await fetch('https://api.kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
-    if (!userResponse.ok) {
-        const errorText = await userResponse.text();
-        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı. Cevap: ${errorText}`);
-    }
-    const user = await userResponse.json();
-    if (!user.slug) throw new Error("Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.");
-    const subResponse = await fetch(`https://api.kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`, {
+    // NİHAİ DÜZELTME: API host adresi `kick.com` olarak güncellendi.
+    const userApiUrl = `https://kick.com/api/v1/user`;
+    const userResponse = await fetch(userApiUrl, {
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Accept': 'application/json'
         }
     });
+
+    if (!userResponse.ok) {
+        const errorText = await userResponse.text();
+        throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı (URL: ${userApiUrl}).\nDurum Kodu: ${userResponse.status}.\nGelen Cevap: ${errorText}`);
+    }
+
+    const user = await userResponse.json();
+    if (!user || !user.slug) {
+        throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
+    }
+
+    // NİHAİ DÜZELTME: API host adresi `kick.com` olarak güncellendi.
+    const subApiUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`;
+    const subResponse = await fetch(subApiUrl, {
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json'
+        }
+    });
+
     if (subResponse.status !== 200 && subResponse.status !== 404) {
         const errorText = await subResponse.text();
-        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü: ${subResponse.status}. Cevap: ${errorText}`);
+        throw new Error(`Kick abonelik API'si beklenmedik bir durum kodu döndürdü (URL: ${subApiUrl}).\nDurum Kodu: ${subResponse.status}.\nGelen Cevap: ${errorText}`);
     }
+
     return subResponse.status === 200;
 }
 
