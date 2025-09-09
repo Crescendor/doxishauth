@@ -9,21 +9,32 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #111827; }
-        .btn-press:active { transform: scale(0.98); box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* bg-gray-900 */
+        }
+        .btn-press:active {
+            transform: scale(0.98);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
         .page { display: none; }
         .page.active { display: block; animation: fadeIn 0.5s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .loader {
-            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
-            width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="text-white flex items-center justify-center min-h-screen p-4">
 
-    <div class="w-full max-w-md mx-auto">
+    <div class="w-full max-w-lg mx-auto">
         <!-- Ana Sayfa -->
         <div id="home-page" class="page active">
             <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8 text-center">
@@ -37,7 +48,7 @@
         <div id="streamer-page" class="page">
             <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8 text-center">
                 <h1 class="text-3xl font-bold text-white mb-2">Yayıncı: <span id="streamer-name" class="text-green-400"></span></h1>
-                <p id="streamer-display-text" class="text-gray-400 my-8"></p>
+                <p id="display-text" class="text-gray-300 my-8"></p>
                 <div class="space-y-4">
                     <button id="kick-login" class="w-full flex items-center justify-center bg-[#53FC18] text-black font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 btn-press">
                         <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M19.982 3H4.018C3.456 3 3 3.456 3 4.018v15.964C3 20.544 3.456 21 4.018 21h15.964c.562 0 1.018-.456 1.018-1.018V4.018C21 3.456 20.544 3 19.982 3zM9.133 8.016h2.153v4.298H9.133V8.016zm5.886 4.904-2.864-2.1V8.016l2.864-2.1v7.008z"/></svg>
@@ -48,7 +59,7 @@
                         <span>Discord ile Giriş Yap</span>
                     </button>
                 </div>
-                 <div id="subscription-status" class="mt-6 text-lg h-5 font-semibold transition-opacity duration-300"></div>
+                <div id="subscription-status" class="mt-6 text-lg h-5 font-semibold transition-opacity duration-300"></div>
             </div>
         </div>
 
@@ -58,38 +69,57 @@
                 <h1 class="text-3xl font-bold text-white mb-6 text-center">Admin Girişi</h1>
                 <form id="login-form">
                     <div class="mb-4">
-                        <label for="password-input" class="block text-gray-400 text-sm font-bold mb-2">Şifre:</label>
+                        <label for="password-input" class="block text-gray-400 text-sm font-bold mb-2">Şifre</label>
                         <input type="password" id="password-input" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
                     </div>
                     <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg btn-press">Giriş Yap</button>
-                    <p id="login-error" class="text-red-500 text-center mt-4 h-4"></p>
+                    <p id="login-error" class="text-red-500 text-xs italic mt-4 text-center h-4"></p>
                 </form>
             </div>
         </div>
 
         <!-- Admin Paneli -->
         <div id="admin-page" class="page">
-             <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8">
-                <div class="flex justify-between items-center mb-6">
-                     <h1 class="text-3xl font-bold text-white">Admin Paneli</h1>
-                     <button id="logout-button" class="text-sm text-red-400 hover:text-red-500">Çıkış Yap</button>
-                </div>
+            <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8">
+                <h1 class="text-3xl font-bold text-white mb-6 text-center">Admin Paneli</h1>
                 
-                <!-- Yeni Yayıncı Ekleme Formu -->
-                <form id="add-streamer-form" class="bg-gray-900 p-4 rounded-lg">
-                    <h2 class="text-xl font-semibold mb-3">Yeni Yayıncı Ekle</h2>
-                    <div class="space-y-4">
-                        <input type="text" id="streamer-slug-input" placeholder="Yayıncı URL Adı (örn: elraenn)" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
-                        <textarea id="display-text-input" placeholder="Ekranda görünecek yazı (örn: Elraenn'e abone misin?)" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" rows="3" required></textarea>
-                        <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg btn-press">Ekle</button>
+                <form id="add-streamer-form" class="space-y-4 bg-gray-900 p-4 rounded-lg border border-gray-700">
+                    <h2 class="text-xl font-semibold text-white">Yeni Yayıncı Ekle</h2>
+                    <div>
+                        <label for="streamer-slug-input" class="block text-sm font-medium text-gray-300">Yayıncı URL Adı (örn: elraenn)</label>
+                        <input type="text" id="streamer-slug-input" placeholder="Sadece küçük harf ve rakam" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
                     </div>
+                    <div>
+                        <label for="display-text-input" class="block text-sm font-medium text-gray-300">Ekranda Görünecek Yazı</label>
+                        <input type="text" id="display-text-input" placeholder="Yayıncı sayfasına hoş geldiniz!" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                    </div>
+                    <fieldset class="border border-gray-600 p-3 rounded-lg">
+                        <legend class="text-sm font-medium text-gray-300 px-2">Discord Ayarları (İsteğe Bağlı)</legend>
+                        <div class="space-y-3">
+                             <div>
+                                <label for="discord-guild-id-input" class="block text-sm font-medium text-gray-400">Discord Sunucu ID</label>
+                                <input type="text" id="discord-guild-id-input" placeholder="Sunucu ID'si" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label for="discord-role-id-input" class="block text-sm font-medium text-gray-400">Discord Abone Rol ID</label>
+                                <input type="text" id="discord-role-id-input" placeholder="Abone rolünün ID'si" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label for="discord-bot-token-input" class="block text-sm font-medium text-gray-400">Discord Bot Token</label>
+                                <input type="text" id="discord-bot-token-input" placeholder="Rol kontrolü yapacak botun token'ı" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                    </fieldset>
+                    <button type="submit" id="add-streamer-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg btn-press">
+                        <span>Yayıncıyı Ekle</span>
+                    </button>
+                    <p id="form-error" class="text-red-400 text-sm text-center h-4"></p>
                 </form>
 
-                <!-- Eklenmiş Yayıncılar Listesi -->
-                <div class="mt-6">
+                <div class="mt-8">
                     <h2 class="text-xl font-semibold mb-3">Eklenmiş Yayıncılar</h2>
-                    <div id="streamer-list-container" class="bg-gray-900 p-4 rounded-lg space-y-3 min-h-[100px]">
-                        <!-- Yayıncılar buraya dinamik olarak eklenecek -->
+                    <div id="streamer-list" class="space-y-2 min-h-[50px]">
+                        <!-- Yayıncılar buraya JS ile eklenecek -->
                     </div>
                 </div>
             </div>
