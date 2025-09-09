@@ -1,8 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v7.0 - Nihai Kick Host Düzeltmesi
- * Bu kod, kullanıcının sağladığı teknik dokümandaki tüm kurallara uyarak,
- * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Tüm API istekleri, dokümandaki curl örneğine uygun olarak `kick.com` adresine yönlendirildi.
+ * Gelişmiş Sunucu Kodu (Backend) v7.1 - Nihai Güvenlik Duvarı Çözümü
+ * Bu kod, Kick API'sinin güvenlik duvarını (WAF) aşmak için gerekli olan
+ * 'User-Agent' başlığını tüm API isteklerine ekler. Bu, "Request blocked by security policy"
+ * hatasını çözmek için tasarlanmıştır.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -216,14 +216,16 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    // NİHAİ DÜZELTME: API host adresi `kick.com` olarak güncellendi.
+    
+    // NİHAİ DÜZELTME: API isteklerine User-Agent başlığı eklendi.
+    const kickApiHeaders = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+    };
+
     const userApiUrl = `https://kick.com/api/v1/user`;
-    const userResponse = await fetch(userApiUrl, {
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Accept': 'application/json'
-        }
-    });
+    const userResponse = await fetch(userApiUrl, { headers: kickApiHeaders });
 
     if (!userResponse.ok) {
         const errorText = await userResponse.text();
@@ -235,14 +237,8 @@ async function checkKickSubscription(accessToken, streamerSlug) {
         throw new Error(`Kick API'sinden gelen yanıtta kullanıcı adı (slug) bulunamadı.\nGelen Cevap: ${JSON.stringify(user)}`);
     }
 
-    // NİHAİ DÜZELTME: API host adresi `kick.com` olarak güncellendi.
     const subApiUrl = `https://kick.com/api/v2/channels/${streamerSlug}/subscribers/${user.slug}`;
-    const subResponse = await fetch(subApiUrl, {
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Accept': 'application/json'
-        }
-    });
+    const subResponse = await fetch(subApiUrl, { headers: kickApiHeaders });
 
     if (subResponse.status !== 200 && subResponse.status !== 404) {
         const errorText = await subResponse.text();
