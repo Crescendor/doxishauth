@@ -173,7 +173,7 @@ async function handleRequest(context) {
     }
 }
 
-// --- YARDIMCI FONKSİYONLAR ---
+// --- YARDIMCI FONKSİYONLARI ---
 async function exchangeCodeForToken(provider, code, codeVerifier, env) {
     let tokenUrl, body;
     if (provider === 'discord') {
