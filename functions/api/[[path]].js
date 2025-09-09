@@ -1,32 +1,21 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v4.0 - Nihai Kick Çözümü (Kullanıcı Dokümanına Göre)
- * Bu kod, kullanıcının sağladığı teknik dokümandaki tüm kurallara uyarak,
+ * Gelişmiş Sunucu Kodu (Backend) v5.0 - Nihai Kick Çözümü (Dokümana Göre)
+ * Bu kod, kullanıcının sağladığı son teknik dokümandaki tüm kurallara uyarak,
  * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Tüm Kick OAuth2 işlemleri artık dokümanda belirtildiği gibi `id.kick.com` üzerinden yapılmaktadır.
+ * Tüm Kick OAuth2 işlemleri `id.kick.com` üzerinden yapılır.
+ * Kurşun geçirmez hata raporlama sistemi içerir.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
-
-// Güvenli, rastgele bir dize oluşturur (code_verifier).
 function generateCodeVerifier() {
     const randomBytes = crypto.getRandomValues(new Uint8Array(32));
-    // Base64URL formatına uygun hale getir
-    return btoa(String.fromCharCode(...randomBytes))
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=/g, '');
+    return btoa(String.fromCharCode(...randomBytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
-
-// Verifier'dan SHA-256 hash'i oluşturur (code_challenge).
 async function generateCodeChallenge(verifier) {
     const encoder = new TextEncoder();
     const data = encoder.encode(verifier);
     const digest = await crypto.subtle.digest('SHA-256', data);
-    // Base64URL formatına uygun hale getir
-    return btoa(String.fromCharCode(...new Uint8Array(digest)))
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=/g, '');
+    return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 // --- ANA İSTEK YÖNETİCİSİ ---
@@ -98,11 +87,10 @@ async function handleRequest(context) {
                         const codeChallenge = await generateCodeChallenge(codeVerifier);
                         stateToStoreInCookie.codeVerifier = codeVerifier;
                         
-                        // DOKÜMANDAN ALINAN DOĞRU BİLGİLER
                         authUrl = new URL('https://id.kick.com/oauth/authorize');
                         authUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
                         authUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
-                        authUrl.searchParams.set('scope', 'user:read:subscriptions');
+                        authUrl.searchParams.set('scope', 'user:read user:read:subscriptions');
                         authUrl.searchParams.set('code_challenge', codeChallenge);
                         authUrl.searchParams.set('code_challenge_method', 'S256');
                     } else {
@@ -197,7 +185,6 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
             redirect_uri: `${env.APP_URL}/api/auth/callback/discord`,
         });
     } else if (provider === 'kick') {
-        // DOKÜMANDAN ALINAN DOĞRU BİLGİLER
         tokenUrl = 'https://id.kick.com/oauth/token';
         body = new URLSearchParams({
             client_id: env.KICK_CLIENT_ID, client_secret: env.KICK_CLIENT_SECRET,
