@@ -1,9 +1,8 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v5.0 - Nihai Kick Çözümü (Dokümana Göre)
- * Bu kod, kullanıcının sağladığı son teknik dokümandaki tüm kurallara uyarak,
+ * Gelişmiş Sunucu Kodu (Backend) v6.0 - Nihai API Uç Noktası Düzeltmesi
+ * Bu kod, kullanıcının sağladığı teknik dokümandaki tüm kurallara uyarak,
  * Kick'in gerektirdiği PKCE (Proof Key for Code Exchange) güvenlik akışını tam olarak uygular.
- * Tüm Kick OAuth2 işlemleri `id.kick.com` üzerinden yapılır.
- * Kurşun geçirmez hata raporlama sistemi içerir.
+ * Kullanıcı bilgisi API uç noktası, dokümanda belirtilen doğru v1 adresine güncellendi.
  */
 
 // --- PKCE YARDIMCI FONKSİYONLARI ---
@@ -226,7 +225,8 @@ async function checkDiscordSubscription(accessToken, streamerInfo) {
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     if (!streamerSlug) return false;
-    const userResponse = await fetch('https://api.kick.com/api/v2/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
+    // NİHAİ DÜZELTME: API adresi dokümanda belirtilen `v1`'e güncellendi.
+    const userResponse = await fetch('https://api.kick.com/api/v1/user', { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } });
     if (!userResponse.ok) {
         const errorText = await userResponse.text();
         throw new Error(`Kick API'sinden kullanıcı bilgisi alınamadı. Cevap: ${errorText}`);
