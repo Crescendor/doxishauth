@@ -1,7 +1,9 @@
 /**
- * Gelişmiş Sunucu Kodu (Backend) v2.5 - Kick Auth URL Düzeltmesi
+ * Gelişmiş Sunucu Kodu (Backend) v2.6 - Dinamik Kick Auth URL
  * Bu kod Cloudflare sunucularında çalışır.
- * Kick'in authorize URL'si, en standart OAuth2 formatına geri döndürüldü.
+ * Kick'in authorize URL'si artık bir ortam değişkeni ile ayarlanabilir.
+ * GEREKLİ YENİ ORTAM DEĞİŞKENİ:
+ * - KICK_AUTHORIZATION_URL: Kick Geliştirici Portalından alınacak olan tam OAuth2 yetkilendirme adresi.
  */
 async function handleRequest(context) {
     const { request, env } = context;
@@ -103,8 +105,12 @@ async function handleRequest(context) {
             discordAuthUrl.searchParams.set('state', state);
             authUrl = discordAuthUrl.toString();
         } else if (provider === 'kick') {
-            // DÜZELTME: Kick'in authorize URL'si, en standart ve yaygın OAuth2 formatına geri döndürüldü.
-            const kickAuthUrl = new URL('https://kick.com/oauth2/authorize');
+            // NİHAİ ÇÖZÜM: Kick'in authorize URL'si artık Cloudflare ayarlarından alınacak.
+            if (!env.KICK_AUTHORIZATION_URL) {
+                console.error("CRITICAL: KICK_AUTHORIZATION_URL environment variable is not set!");
+                return new Response('Kick integration is not configured correctly.', { status: 500 });
+            }
+            const kickAuthUrl = new URL(env.KICK_AUTHORIZATION_URL);
             kickAuthUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
             kickAuthUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
             kickAuthUrl.searchParams.set('response_type', 'code');
