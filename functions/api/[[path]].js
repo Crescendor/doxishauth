@@ -109,8 +109,8 @@ async function handleRequest(context) {
             discordAuthUrl.searchParams.set('state', state);
             authUrl = discordAuthUrl.toString();
         } else if (provider === 'kick') {
-            // DÜZELTME: Kick'in authorize URL'si güncellendi.
-            const kickAuthUrl = new URL('https://kick.com/api/v2/oauth/authorize');
+            // DÜZELTME: Kick'in authorize URL'si, 404 hatasını önlemek için daha standart bir formata güncellendi.
+            const kickAuthUrl = new URL('https://kick.com/oauth2/authorize');
             kickAuthUrl.searchParams.set('client_id', env.KICK_CLIENT_ID);
             kickAuthUrl.searchParams.set('redirect_uri', `${env.APP_URL}/api/auth/callback/kick`);
             kickAuthUrl.searchParams.set('response_type', 'code');
