@@ -1,19 +1,21 @@
 /**
- * Front glue (UI'ya dokunmaz)
- * - Admin: şifre boşsa Kick ile girişe yönlendirir (/api/admin/redirect/kick)
- * - /admin?admin=1 geldiğinde paneli açar ve sessionStorage'a yazar
- * - /api/admin/check ile HttpOnly admin_auth çerezini de doğrular
- * - Streamer akışı ve abonelik göstergesi aynı kalır
+ * Admin sadece Kick ile giriş (şifresiz)
+ * - /admin sayfasında admin_auth yoksa otomatik Kick OAuth’a gönderir.
+ * - Yine de görünür bir "Kick ile Giriş Yap" butonu istersen,
+ *   admin-login bölümüne non-intrusive olarak enjekte eder (mevcut buton stilini kopyalar).
+ * - Yayıncı sayfası akışı, abonelik rozeti, çıkış butonu ve çift giriş şartı (Kick+Discord) korunur.
  */
+
 (function () {
   "use strict";
-  const $ = (sel, root = document) => root.querySelector(sel);
 
+  const $ = (sel, root = document) => root.querySelector(sel);
   const apiBase = () => location.origin;
   const defaultBg = "url('https://i.ibb.co/7Nbkyyss/Untitled-design.png')";
 
   function showToast(msg, isError = false, ms = 2500) {
-    const t = $("#toast"); if (!t) return;
+    const t = $("#toast");
+    if (!t) return;
     t.textContent = msg;
     t.className = `toast fixed bottom-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg border ${isError ? 'bg-red-600/80 border-red-500' : 'bg-gray-800/80 border-gray-700'}`;
     void t.offsetWidth; t.classList.add("show");
@@ -29,12 +31,12 @@
   }
 
   const getStreamer = (slug) => fetchJSON(`${apiBase()}/api/streamers/${encodeURIComponent(slug)}`);
-  const listStreamers = () => fetchJSON(`${apiBase()}/api/streamers`);
 
   function defaultAuth(slug) {
-    return { slug,
-      kick:{ linked:false, subscribed:false, method:"", expires_at:"", viewerId:"", username:"" },
-      discord:{ linked:false, userId:"" },
+    return {
+      slug,
+      kick: { linked:false, subscribed:false, method:"", expires_at:"", viewerId:"", username:"" },
+      discord: { linked:false, userId:"" },
       ts: Date.now()
     };
   }
@@ -59,6 +61,7 @@
   }
 
   function wireLoginButtons(slug, auth){
+    // Discord login
     const d = $("#discord-login");
     if(d){
       const x=d.cloneNode(true); x.id="discord-login"; d.replaceWith(x);
@@ -66,6 +69,8 @@
       if(auth.discord.linked){ x.classList.add("disabled"); x.setAttribute("disabled","disabled"); }
       else { x.classList.remove("disabled"); x.removeAttribute("disabled"); }
     }
+
+    // Kick login (yayıncı sayfası, kullanıcı oturumu)
     const k = $("#kick-login");
     if(k){
       const x=k.cloneNode(true); x.id="kick-login"; k.replaceWith(x);
@@ -82,12 +87,12 @@
   async function mountStreamerPage(slug){
     try{
       const s=await getStreamer(slug);
-      const title=$("#streamer-title"); if(title) title.textContent = s.title || s.displayText || slug;
-      const sub=$("#streamer-subtitle"); if(sub) sub.textContent = s.subtitle || "Aboneliğini doğrulamak için giriş yap.";
+      $("#streamer-title") && ($("#streamer-title").textContent = s.title || s.displayText || slug);
+      $("#streamer-subtitle") && ($("#streamer-subtitle").textContent = s.subtitle || "Aboneliğini doğrulamak için giriş yap.");
       document.body.style.backgroundImage = s.customBackgroundUrl ? `url('${s.customBackgroundUrl}')` : defaultBg;
     }catch{
-      const title=$("#streamer-title"); if(title) title.textContent = slug;
-      const sub=$("#streamer-subtitle"); if(sub) sub.textContent = "Yayıncı bulunamadı.";
+      $("#streamer-title") && ($("#streamer-title").textContent = slug);
+      $("#streamer-subtitle") && ($("#streamer-subtitle").textContent = "Yayıncı bulunamadı.");
       document.body.style.backgroundImage = defaultBg;
       showToast("Yayıncı bulunamadı", true);
     }
@@ -125,6 +130,7 @@
       }
     }
 
+    // Çift giriş şartı: Kick + Discord
     const bothLinked = auth.kick.linked && auth.discord.linked;
     const ok = bothLinked && auth.kick.subscribed===true;
 
@@ -145,10 +151,18 @@ auth=${JSON.stringify(auth,null,2)}`;
     }
 
     wireLoginButtons(slug, auth);
+
+    // /yayıncı sayfasında sağ-üst "Çıkış Yap" (Kick oturumu kapatır, UI tasarımına dokunmadan)
+    const logout = $("#logout-btn");
+    if(logout){
+      const l = logout.cloneNode(true); l.id="logout-btn"; logout.replaceWith(l);
+      l.addEventListener("click", (e)=>{ e.preventDefault(); clearAuth(); location.href=`/${slug}`; });
+    }
   }
 
-  /* ---- Admin helpers ---- */
-  async function adminCheckAndShow(){
+  /* ------------ Admin only Kick flow ------------- */
+  async function ensureAdminAuthUI(){
+    // Mevcut sayfa parçaları (tasarıma dokunmuyoruz)
     const pages = {
       home: $("#home-page"),
       content: $("#content-page"),
@@ -157,47 +171,70 @@ auth=${JSON.stringify(auth,null,2)}`;
       adminLogin: $("#admin-login-page"),
       adminPanel: $("#admin-panel-page"),
     };
-    const showPage = (name)=>{
+    const showAdminPage = (name)=>{
       if(!pages.home || !pages.content || !pages.streamer || !pages.admin) return;
       Object.values(pages).forEach(p => p && p.classList && p.classList.remove('active'));
-      if(name==="home"){ pages.home.classList.add('active'); return; }
       pages.content.classList.add('active');
-      pages.streamer.style.display = 'none';
-      pages.admin.style.display = 'block';
+      pages.streamer && (pages.streamer.style.display = 'none');
+      pages.admin && (pages.admin.style.display = 'block');
       pages.adminLogin && (pages.adminLogin.style.display = name==="adminLogin" ? 'flex':'none');
       pages.adminPanel && (pages.adminPanel.style.display = name==="adminPanel" ? 'flex':'none');
     };
 
-    // URL paramından gelen admin=1 ise sessionStorage’a yaz ve paramı temizle
-    const u = new URL(location.href);
-    const adminParam = u.searchParams.get("admin");
-    if(adminParam === "1"){
-      sessionStorage.setItem("isAdminAuthenticated","true");
-      // temizle (kick_username vs kalsın istersen kalsın, ama sadeleştirelim):
-      ["admin"].forEach(k=>u.searchParams.delete(k));
-      try{ history.replaceState({}, document.title, u.pathname + (u.search?("?"+u.searchParams.toString()):"") + u.hash); }catch{}
-    }
-
-    // Çerez tabanlı admin kontrolü (backend doğrusu)
+    // Sunucudan gerçek oturum kontrolü (HttpOnly cookie)
+    let authenticated = false, user = null;
     try{
       const chk = await fetchJSON(`/api/admin/check`);
-      if(chk.authenticated) sessionStorage.setItem("isAdminAuthenticated","true");
+      authenticated = !!chk.authenticated;
+      user = chk.user || null;
     }catch{}
 
-    if(sessionStorage.getItem("isAdminAuthenticated")){
-      showPage("adminPanel");
-      // Listeyi yükleyen mevcut fonksiyonun varsa tetikle:
-      const btn = $("#refresh-list-btn"); btn && btn.click();
-    } else {
-      showPage("adminLogin");
+    if(authenticated){
+      showAdminPage("adminPanel");
+      // varsa mevcut “listeyi yenile” butonunu tetikle
+      $("#refresh-list-btn")?.click();
+      return;
     }
+
+    // Oturum yoksa: 1) admin-login sayfasını göster
+    showAdminPage("adminLogin");
+
+    // 2) Görünür bir “Kick ile Giriş Yap” butonu yoksa nazikçe enjekte et
+    if(!$("#admin-kick-login")){
+      const host = $("#admin-login-page") || pages.adminLogin || pages.admin;
+      if(host){
+        // Stil bozmayalım: varsa yayıncı sayfasındaki Kick butonunun class'ını klonla
+        const sampleBtn = $("#kick-login") || $("#discord-login") || $("#some-existing-btn");
+        const btn = document.createElement("button");
+        btn.id = "admin-kick-login";
+        btn.type = "button";
+        btn.textContent = "Kick ile Giriş Yap";
+        if(sampleBtn){
+          btn.className = sampleBtn.className; // mevcut buton stilini kopyala
+        } else {
+          // En minimal stiller (tasarımı bozmasın diye nötr)
+          btn.style.cssText = "padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.4);color:#fff;cursor:pointer;";
+        }
+        host.appendChild(btn);
+      }
+    }
+
+    // 3) Butona tıklayınca direkt Kick OAuth
+    $("#admin-kick-login")?.addEventListener("click", (e)=>{
+      e.preventDefault(); location.href = "/api/admin/redirect/kick";
+    });
+
+    // 4) İstersen hiç buton göstermeden de otomatik yönlendirebilirim:
+    //    Auto-redirect (yorumdan çıkarırsan /admin'e gelince direkt Kick sayfasına gider)
+    // location.href = "/api/admin/redirect/kick";
   }
 
+  /* ------------- Router -------------- */
   async function handleRouting(){
     const path = location.pathname.replace(/^\/+/, "");
     if(path.toLowerCase()==="admin"){
       document.body.style.backgroundImage = defaultBg;
-      await adminCheckAndShow();
+      await ensureAdminAuthUI();
       return;
     }
 
@@ -237,29 +274,7 @@ auth=${JSON.stringify(auth,null,2)}`;
   }
 
   document.addEventListener("DOMContentLoaded", ()=>{
-    // Admin login form: şifre boşsa Kick OAuth’a yönlendir
-    $("#admin-login-form")?.addEventListener("submit", async (e)=>{
-      e.preventDefault();
-      const pwd = $("#admin-password")?.value || "";
-      if(pwd.trim()===""){
-        location.href = "/api/admin/redirect/kick";
-        return;
-      }
-      try{
-        const r = await fetch(`/api/login`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ password: pwd }) });
-        if(r.ok){
-          sessionStorage.setItem("isAdminAuthenticated","true");
-          location.pathname="/admin";
-        } else {
-          showToast("Hatalı şifre!", true);
-        }
-      }catch{ showToast("Giriş sırasında bir hata oluştu.", true); }
-    });
-
-    // Eğer index'te ayrı bir buton koyduysan:
-    $("#admin-kick-login")?.addEventListener("click", (e)=>{ e.preventDefault(); location.href="/api/admin/redirect/kick"; });
-
-    // Admin logout hem çerezi hem session'ı temizler
+    // Admin logout -> hem çerez hem session temizliği (UI tasarımına dokunmadan)
     $("#logout-btn")?.addEventListener("click", async ()=>{
       try{ await fetch(`/api/admin/logout`, { method:"POST" }); }catch{}
       sessionStorage.clear(); location.pathname="/";
