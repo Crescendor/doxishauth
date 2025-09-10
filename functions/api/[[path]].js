@@ -1,20 +1,17 @@
 /**
- * Kick Abonelik Doğrulama – v10.6
+ * Kick Abonelik Doğrulama – v10.7
  * Cloudflare Pages Functions (KV: STREAMERS)
  *
- * ABONE KURALI:
- *  - JSON içinde herhangi derinlikte string "expires_at" varsa => ABONE (tarihe bakmadan)
- *  - VEYA /api/v2/channels/{slug}/users/{username} yanıtında badges[*].type === "subscriber" ise => ABONE
- *  - Ek yollar: identity (userId/username), /channels/{slug}/me, /user/subscriptions
+ * ✅ Admin login fix:
+ *   - password ve ENV normalize (trim + NFKC)
+ *   - güvenli karşılaştırma (süre bazlı kısa devre yok)
+ *   - Aynı kontrol /api/login ve /api/streamers POST/PUT/DELETE için ortak
+ *   - /api/admin/diag teşhis ucu: { hasAdminPassword, adminLength } (değer göstermez)
  *
- * Admin API:
- *  - POST /api/login                      -> {password}
- *  - CRUD /api/streamers                  -> KV: STREAMERS (slug key)
- *
- * OAuth:
- *  - /api/auth/redirect/{kick|discord}?streamer=slug
- *  - /api/auth/callback/{kick|discord}
- *  - Callback redirect -> /:slug?provider=...&subscribed=true|false&method=...&expires_at=...&kick_viewer_id=...&kick_username=...&discord_user_id=...
+ * 🟢 Abonelik kuralı (değişmedi):
+ *   - JSON içinde herhangi derinlikte "expires_at" string → ABONE
+ *   - Veya /api/v2/channels/{slug}/users/{username} badges[*].type === "subscriber" → ABONE
+ *   - Fallback: /user/subscriptions, /channels/{slug}/me, identity (userId/username), subscribers/{username}
  *
  * ENV: APP_URL, ADMIN_PASSWORD, KICK_CLIENT_ID, KICK_CLIENT_SECRET
  *      (opsiyonel) DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET
@@ -27,6 +24,23 @@ const UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, l
 
 const JSONH=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{"Content-Type":"application/json; charset=utf-8"}});
 const TEXT =(msg,status=400)=>new Response(msg,{status,headers:{"Content-Type":"text/plain; charset=utf-8"}});
+
+const norm = (s) => (s==null ? "" : String(s)).normalize("NFKC").trim();
+function eqSecure(a,b){
+  // Süre temelli kısa devreyi azaltmak için sabit süreli karşılaştırma
+  if(a.length !== b.length) return false;
+  let r=0; for(let i=0;i<a.length;i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r===0;
+}
+function isAdminAuthorized(provided, env){
+  const need = norm(env.ADMIN_PASSWORD);
+  const got  = norm(provided);
+  if(need.length===0){ // ENV yoksa dev mod: izin ver
+    return { ok:true, mode:"dev" };
+  }
+  const ok = eqSecure(got, need);
+  return { ok, mode:"strict" };
+}
 
 async function safeJsonReq(req){
   const ct=(req.headers.get("content-type")||"").toLowerCase();
@@ -73,7 +87,6 @@ function findExpiresAtDeep(node){
 
 /* -------------------- Kick Viewer -------------------- */
 async function getKickViewer(accessToken){
-  // Public aggregate
   const r=await fetch("https://api.kick.com/public/v1/users",{
     headers:{ Authorization:`Bearer ${accessToken}`, Accept:"application/json", "User-Agent":UA }
   });
@@ -85,7 +98,6 @@ async function getKickViewer(accessToken){
   let user_id = rec?.user_id ?? rec?.id ?? rec?.user?.id ?? null;
   let username= rec?.name ?? rec?.username ?? rec?.slug ?? rec?.user?.username ?? null;
 
-  // Website v1 fallback
   if(!user_id || !username){
     const w=await fetch("https://kick.com/api/v1/user",{ headers: siteHeaders("", accessToken) });
     const wtxt=await w.text();
@@ -143,17 +155,13 @@ async function getSubscriberByUsername(slug, username, bearer){
 /* -------------------- Evidence helpers -------------------- */
 function isSubBadge(b){
   const vals=[b?.type,b?.name,b?.text,b?.title,b?.label].filter(Boolean).map(x=>String(x).toLowerCase());
-  // Kesin kural: type === "subscriber"
   if(vals.includes("subscriber")) return true;
-  // Eski varyantları da kaçırmayalım
   return vals.some(x=>x.includes("sub"));
 }
 function evidence(obj){
-  // 1) expires_at derin arama
   const ex=findExpiresAtDeep(obj);
   if(ex) return { hasSubscription:true, source:"expires_at", expires_at:ex };
 
-  // 2) badges'te subscriber
   const badges = Array.isArray(obj?.badges) ? obj.badges
                 : Array.isArray(obj?.identity?.badges) ? obj.identity.badges
                 : Array.isArray(obj?.user_identity?.badges) ? obj.user_identity.badges
@@ -167,7 +175,6 @@ function evidence(obj){
 
 /* -------------------- Main Kick Check -------------------- */
 async function checkKickSubscriptionViewer(accessToken, streamerSlug){
-  // 0) Kolay yollar: /user/subscriptions ve /channels/{slug}/me
   const subs=await getUserSubscriptions(accessToken, streamerSlug);
   if(subs.ok && subs.data){
     const arr=Array.isArray(subs.data)?subs.data:(Array.isArray(subs.data?.data)?subs.data.data:[]);
@@ -183,11 +190,9 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug){
     const ev=evidence(me.data); if(ev.hasSubscription) return { subscribed:true, method:"channels/me", expires_at:ev.expires_at, viewerId:null, viewerUsername:null, channelId:null };
   }
 
-  // 1) Viewer + Channel
   const viewer=await getKickViewer(accessToken);
   const { channelId }=await getChannelBySlug(streamerSlug);
 
-  // 2) Identity by userId
   const idRes=await getIdentityByUserId(channelId, viewer.id, streamerSlug);
   if(!idRes.ok) throw new Error(`identity HTTP ${idRes.status||"??"}\n${idRes.raw||""}`);
   if(idRes.data){
@@ -195,7 +200,6 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug){
     if(ev.hasSubscription) return { subscribed:true, method:"identity:userId", expires_at:ev.expires_at, viewerId:viewer.id, viewerUsername:viewer.username, channelId };
   }
 
-  // 3) Identity by username (Playwright tarzı badge kontrolüyle birebir)
   const unRes=await getIdentityByUsername(streamerSlug, viewer.username, streamerSlug);
   if(!unRes.ok) throw new Error(`identity(username) HTTP ${unRes.status||"??"}\n${unRes.raw||""}`);
   if(unRes.data){
@@ -203,7 +207,6 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug){
     if(ev.hasSubscription) return { subscribed:true, method:"users:badge", expires_at:ev.expires_at, viewerId:viewer.id, viewerUsername:viewer.username, channelId };
   }
 
-  // 4) subscribers/{username} (Bearer)
   const sRes=await getSubscriberByUsername(streamerSlug, viewer.username, accessToken);
   if(!sRes.ok) throw new Error(`subscribers(username) HTTP ${sRes.status||"??"}\n${sRes.raw||""}`);
   if(sRes.data){
@@ -255,19 +258,23 @@ async function handleRequest(context){
     const STREAMERS=env.STREAMERS;
 
     if(seg[0]==="api"){
+      // Health & Diag
       if(seg[1]==="health" && method==="GET"){ return JSONH({ ok:true, now:Date.now() }); }
-
-      // Admin login: ADMIN_PASSWORD yoksa dev mod = serbest
-      if(seg[1]==="login" && method==="POST"){
-        const { password="" } = await safeJsonReq(request);
-        if(env.ADMIN_PASSWORD){
-          if(password===env.ADMIN_PASSWORD) return JSONH({ success:true });
-          return JSONH({ error:"Invalid password" },401);
-        } else {
-          return JSONH({ success:true, dev:true }); // no ADMIN_PASSWORD -> allow
-        }
+      if(seg[1]==="admin" && seg[2]==="diag" && method==="GET"){
+        const val = norm(env.ADMIN_PASSWORD);
+        return JSONH({ hasAdminPassword: val.length>0, adminLength: val.length });
       }
 
+      // Admin login
+      if(seg[1]==="login" && method==="POST"){
+        const body = await safeJsonReq(request);
+        const provided = body.password ?? body.pass ?? body.p ?? "";
+        const auth = isAdminAuthorized(provided, env);
+        if(auth.ok) return JSONH({ success:true, mode:auth.mode });
+        return JSONH({ error:"Invalid password" }, 401);
+      }
+
+      // Streamers CRUD
       if(seg[1]==="streamers"){
         if(method==="GET" && !seg[2]){
           const list=await STREAMERS.list();
@@ -280,22 +287,25 @@ async function handleRequest(context){
         }
         if(method==="POST"){
           const b=await safeJsonReq(request);
-          const { password }=b;
-          if(env.ADMIN_PASSWORD && password!==env.ADMIN_PASSWORD) return JSONH({ error:"Unauthorized" },401);
-          const slug=(b.slug||"").trim();
-          const displayTextRaw=(b.displayText||b.title||"").trim();
+          const provided = b.password ?? b.pass ?? b.p ?? "";
+          const auth = isAdminAuthorized(provided, env);
+          if(!auth.ok) return JSONH({ error:"Unauthorized" },401);
+
+          const slug=norm(b.slug);
+          const displayTextRaw=norm(b.displayText||b.title);
           if(!slug || !displayTextRaw) return JSONH({ error:"Slug and displayText required" },400);
+
           const rec={
             displayText: displayTextRaw,
-            title: (b.title||displayTextRaw)||null,
-            subtitle: (b.subtitle||"")||null,
-            customBackgroundUrl: (b.customBackgroundUrl||"")||null,
-            kickRedirectorUrl: (b.kickRedirectorUrl||"")||null,
-            discordRedirectorUrl: (b.discordRedirectorUrl||"")||null,
-            botghostWebhookUrl: (b.botghostWebhookUrl||"")||null,
-            discordGuildId: (b.discordGuildId||"")||null,
-            discordRoleId: (b.discordRoleId||"")||null,
-            discordBotToken: (b.discordBotToken||"")||null,
+            title: norm(b.title) || displayTextRaw,
+            subtitle: norm(b.subtitle),
+            customBackgroundUrl: norm(b.customBackgroundUrl),
+            kickRedirectorUrl: norm(b.kickRedirectorUrl),
+            discordRedirectorUrl: norm(b.discordRedirectorUrl),
+            botghostWebhookUrl: norm(b.botghostWebhookUrl),
+            discordGuildId: norm(b.discordGuildId),
+            discordRoleId: norm(b.discordRoleId),
+            discordBotToken: norm(b.discordBotToken),
             broadcaster_user_id: b.broadcaster_user_id || null
           };
           await STREAMERS.put(slug, JSON.stringify(rec));
@@ -303,22 +313,37 @@ async function handleRequest(context){
         }
         if(method==="PUT" && seg[2]){
           const b=await safeJsonReq(request);
+          const provided = b.password ?? b.pass ?? b.p ?? "";
+          const auth = isAdminAuthorized(provided, env);
+          if(!auth.ok) return JSONH({ error:"Unauthorized" },401);
+
           const v=await STREAMERS.get(seg[2]); if(!v) return JSONH({ error:"Streamer not found" },404);
           const cur=JSON.parse(v);
           const patch={ ...cur, ...b };
-          if(!patch.displayText && patch.title) patch.displayText=patch.title;
-          for(const k of Object.keys(patch)){ if(patch[k]==="") patch[k]=null; }
+
+          // Normalize editable fields
+          if("title" in patch) patch.title = norm(patch.title);
+          if("displayText" in patch) patch.displayText = norm(patch.displayText);
+          if(!patch.displayText && patch.title) patch.displayText = patch.title;
+
+          const fields = ["subtitle","customBackgroundUrl","kickRedirectorUrl","discordRedirectorUrl","botghostWebhookUrl","discordGuildId","discordRoleId","discordBotToken"];
+          for(const f of fields) if(f in patch) patch[f] = norm(patch[f]);
+
           await STREAMERS.put(seg[2], JSON.stringify(patch));
           return JSONH({ success:true, slug:seg[2] });
         }
         if(method==="DELETE" && seg[2]){
-          const { password }=await safeJsonReq(request);
-          if(env.ADMIN_PASSWORD && password!==env.ADMIN_PASSWORD) return JSONH({ error:"Unauthorized" },401);
+          const b=await safeJsonReq(request);
+          const provided = b.password ?? b.pass ?? b.p ?? "";
+          const auth = isAdminAuthorized(provided, env);
+          if(!auth.ok) return JSONH({ error:"Unauthorized" },401);
+
           await STREAMERS.delete(seg[2]);
           return JSONH({ success:true });
         }
       }
 
+      // OAuth redirect
       if(seg[1]==="auth" && seg[2]==="redirect" && seg[3]){
         const provider=seg[3];
         const streamer=url.searchParams.get("streamer");
@@ -350,6 +375,7 @@ async function handleRequest(context){
         return new Response(null,{ status:302, headers:{ Location:authUrl.toString(), "Set-Cookie":cookie }});
       }
 
+      // OAuth callback
       if(seg[1]==="auth" && seg[2]==="callback" && seg[3]){
         const provider=seg[3];
         const code=url.searchParams.get("code");
@@ -363,11 +389,9 @@ async function handleRequest(context){
         const stored=JSON.parse(storedJSON);
         if(stateFromUrl!==stored.random) return TEXT("HATA ADIM 3: CSRF state eşleşmiyor",403);
 
-        // Token
         let token; try{ token=await exchangeCodeForToken(provider, code, stored.codeVerifier, env); }
         catch(e){ return TEXT(`HATA ADIM 4: Token alınamadı\n\n${e.message}`,500); }
 
-        // Checks
         let isSub=false, methodUsed="", exp="", kickViewerId="", kickUsername="", discordUserId="";
         try{
           const slug=stored.streamer;
@@ -378,9 +402,8 @@ async function handleRequest(context){
           if(provider==="discord"){
             const me=await getDiscordMe(token.access_token);
             discordUserId=String(me.id||"");
-            // Discord rol kontrolü opsiyonel kalıyor; front ikisini de “linked” arıyor.
             await checkDiscordSubscription(token.access_token, info);
-          }else if(provider==="kick"){
+          } else if(provider==="kick"){
             const r=await checkKickSubscriptionViewer(token.access_token, slug);
             isSub=!!r.subscribed; methodUsed=r.method||""; exp=r.expires_at||"";
             kickViewerId=r.viewerId?String(r.viewerId):""; kickUsername=r.viewerUsername||"";
@@ -404,7 +427,7 @@ async function handleRequest(context){
       return TEXT("Not Found",404);
     }
 
-    // Statikleri Pages servis ediyor; burada 404 dönmesi normal.
+    // statik dosyaları Pages servis ediyor
     return TEXT("Not Found",404);
   }catch(err){
     console.error("KRITIK HATA:", err);
