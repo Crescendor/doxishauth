@@ -325,3 +325,78 @@ document.addEventListener("DOMContentLoaded", () => {
     handleRouting();
 });
 
+
+
+
+// --- Global Logout UX (Kick/Discord fark etmeksizin app-level logout) ---
+    (function() {
+      const globalLogoutBtn = document.getElementById("global-logout");
+
+      function getCurrentSlug() {
+        const p = location.pathname.replace(/^\/+/, "");
+        return p.split("/")[0] || "";
+      }
+
+      // Callback'ten dönen provider/subscribed'ı session'a senkronize et
+      (function syncAuthFromQuery() {
+        try {
+          const url = new URL(location.href);
+          const provider = url.searchParams.get("provider");
+          const subscribed = url.searchParams.get("subscribed");
+          if (provider) {
+            const auth = {
+              provider,
+              slug: getCurrentSlug(),
+              subscribed: subscribed === "true",
+              ts: Date.now()
+            };
+            sessionStorage.setItem("auth", JSON.stringify(auth));
+
+            // Query temizle
+            ["provider","subscribed","method","expires_at","logged_out"].forEach(k => url.searchParams.delete(k));
+            const clean = url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "") + url.hash;
+            window.history.replaceState({}, document.title, clean);
+          }
+        } catch (e) {
+          console.warn("syncAuthFromQuery error", e);
+        }
+      })();
+
+      function updateLogoutVisibility() {
+        const isLogged = !!sessionStorage.getItem("auth");
+        if (globalLogoutBtn) {
+          if (isLogged) {
+            globalLogoutBtn.classList.remove("hidden");
+            globalLogoutBtn.style.display = ""; // ensure visible if no Tailwind
+          } else {
+            globalLogoutBtn.classList.add("hidden");
+            globalLogoutBtn.style.display = "none";
+          }
+        }
+      }
+
+      // İlk yükleme
+      updateLogoutVisibility();
+
+      // Diğer sekmelerle senkronize ol
+      window.addEventListener("storage", (ev) => {
+        if (ev.key === "auth") updateLogoutVisibility();
+      });
+
+      // Çıkış
+      globalLogoutBtn?.addEventListener("click", (e) => {
+        e.preventDefault();
+        try {
+          sessionStorage.removeItem("auth");
+          // Opsiyonel: admin oturumlarını da sil
+          sessionStorage.removeItem("isAdminAuthenticated");
+          sessionStorage.removeItem("adminPassword");
+        } catch {}
+        updateLogoutVisibility();
+
+        const slug = getCurrentSlug();
+        const url = new URL("/" + slug, location.origin);
+        url.searchParams.set("logged_out", "1");
+        location.href = url.toString();
+      });
+    })();
