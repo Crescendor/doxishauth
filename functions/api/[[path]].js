@@ -1,15 +1,24 @@
 // functions/[[path]].js
 /**
- * Kick Abonelik Doğrulama – Strict v17.1
+ * Kick Abonelik Doğrulama – v18.2 (UI dokunmadan)
  * Cloudflare Pages Functions (KV: STREAMERS)
  *
- * 🔒 KURAL: expires_at VARSA = ABONE, YOKSA = DEĞİL (badge/fallback yok)
- * 🔁 OAuth: Kick (PKCE) + (opsiyonel) Discord
- * 🔎 Identity: /api/v2/channels/{channelId}/users/{viewerId}/identity
- * 🧰 Viewer:  https://api.kick.com/public/v1/users (Bearer)
+ * KURAL: JSON içinde herhangi derinlikte string bir `expires_at` varsa = ABONE.
+ * Sıra:
+ *   1) /api/v2/channels/{slug}/me  (Bearer + Referer)
+ *   2) /api/v2/channels/{channelId}/users/{viewerId}/identity
+ *   3) /api/v2/channels/{slug}/users/{username}
+ *
+ * ENV:
+ *  APP_URL
+ *  ADMIN_PASSWORD
+ *  KICK_CLIENT_ID, KICK_CLIENT_SECRET
+ *  (opsiyonel) DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET
  */
 
-export async function onRequest(context) { return handleRequest(context); }
+export async function onRequest(context) {
+  return handleRequest(context);
+}
 
 /* ---------------- Utils ---------------- */
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -29,13 +38,15 @@ async function generateCodeChallenge(verifier){
 }
 
 /* ---------------- Headers ---------------- */
-function siteHeaders(refererPathOrUrl){
-  return {
+function siteHeaders(refererPathOrUrl, withBearer){
+  const h = {
     Accept:"application/json",
     "User-Agent":UA,
     Referer: refererPathOrUrl?.startsWith("http") ? refererPathOrUrl : `https://kick.com/${refererPathOrUrl||""}`,
     Origin:"https://kick.com",
   };
+  if (withBearer) h.Authorization = `Bearer ${withBearer}`;
+  return h;
 }
 
 /* ---------------- Kick Viewer (Public API) ---------------- */
@@ -64,6 +75,15 @@ async function getChannelBySlug(slug){
   if(!channelId) throw new Error(`Kanal ID bulunamadı. Cevap: ${JSON.stringify(j)}`);
   return { channelId };
 }
+
+async function getChannelMe(slug, accessToken){
+  const url = `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}/me`;
+  const r = await fetch(url, { headers: siteHeaders(slug, accessToken) });
+  if (r.status === 401 || r.status === 403) return { ok:false, auth:false, raw: await safeText(r) };
+  if (!r.ok) return { ok:false, auth:true, raw: await safeText(r) };
+  return { ok:true, data: await safeJsonRes(r) };
+}
+
 async function getIdentityByUserId(channelId, userId, refererSlug){
   const r = await fetch(`https://kick.com/api/v2/channels/${channelId}/users/${userId}/identity`, { headers: siteHeaders(refererSlug) });
   if (r.status === 404) return { ok:true, data:null };
@@ -71,29 +91,58 @@ async function getIdentityByUserId(channelId, userId, refererSlug){
   return { ok:true, data: await safeJsonRes(r) };
 }
 
-/* ---------------- Strict expires_at rule ---------------- */
-/** JSON içinde herhangi derinlikte string bir `expires_at` var mı? */
-function hasExpiresAtDeep(node){
+async function getIdentityByUsername(slug, username, refererSlug){
+  const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}/users/${encodeURIComponent(username)}`, { headers: siteHeaders(refererSlug) });
+  if (r.status === 404) return { ok:true, data:null };
+  if (!r.ok) return { ok:false, status:r.status, raw: await safeText(r) };
+  return { ok:true, data: await safeJsonRes(r) };
+}
+
+/* ---------------- expires_at derin arayıcı ---------------- */
+function findExpiresAtDeep(node){
   const stack = [node];
-  while(stack.length){
+  while (stack.length){
     const cur = stack.pop();
-    if(!cur || typeof cur !== "object") continue;
+    if (!cur || typeof cur !== "object") continue;
     for (const [k,v] of Object.entries(cur)){
-      if (k === "expires_at" && typeof v === "string" && v.trim().length>0) return true;
+      if (k === "expires_at" && typeof v === "string" && v.trim()) return v;
       if (v && typeof v === "object") stack.push(v);
     }
   }
-  return false;
+  return null;
 }
 
-async function checkKickSubscriptionStrict(accessToken, streamerSlug){
+/* ---------------- Kick Subscription Logic ---------------- */
+async function checkKickSubscription(accessToken, streamerSlug){
+  // 0) Viewer
   const viewer = await getKickViewer(accessToken);
+
+  // 1) Fast path: /me (Bearer + Referer)
+  const meRes = await getChannelMe(streamerSlug, accessToken);
+  if (meRes.ok && meRes.data){
+    const ex = findExpiresAtDeep(meRes.data);
+    if (ex) return { subscribed:true, method:"me", expires_at: ex, viewer };
+  }
+
+  // 2) Identity by userId
   const { channelId } = await getChannelBySlug(streamerSlug);
   const idRes = await getIdentityByUserId(channelId, viewer.id, streamerSlug);
-  if (!idRes.ok)   throw new Error(`identity HTTP ${idRes.status || "??"}\n${idRes.raw || ""}`);
-  if (!idRes.data) return { subscribed:false, viewer };
-  const isSub = hasExpiresAtDeep(idRes.data); // 🔒 tek kural
-  return { subscribed:isSub, viewer };
+  if (!idRes.ok) throw new Error(`identity HTTP ${idRes.status || "??"}\n${idRes.raw || ""}`);
+  if (idRes.data){
+    const ex = findExpiresAtDeep(idRes.data);
+    if (ex) return { subscribed:true, method:"identity:userId", expires_at: ex, viewer };
+  }
+
+  // 3) Identity by username
+  const unRes = await getIdentityByUsername(streamerSlug, viewer.username, streamerSlug);
+  if (!unRes.ok) throw new Error(`identity(username) HTTP ${unRes.status || "??"}\n${unRes.raw || ""}`);
+  if (unRes.data){
+    const ex = findExpiresAtDeep(unRes.data);
+    if (ex) return { subscribed:true, method:"identity:username", expires_at: ex, viewer };
+  }
+
+  // 4) Son: abone değil
+  return { subscribed:false, method:"none", viewer };
 }
 
 /* ---------------- Discord (opsiyonel) ---------------- */
@@ -152,7 +201,7 @@ async function handleRequest(context){
         return JSONH({ error:"Invalid password" }, 401);
       }
 
-      // Streamers CRUD (mevcutta displayText şemasını koruyoruz)
+      // Streamers CRUD
       if (seg[1] === "streamers"){
         if (method === "GET" && !seg[2]){
           const list = await STREAMERS.list();
@@ -238,17 +287,16 @@ async function handleRequest(context){
           tokenData = await exchangeCodeForToken(provider, code, parsed.codeVerifier, env);
         } catch(e){ return TEXT(`HATA ADIM 4: Token alınamadı\n\n${e.message}`, 500); }
 
-        // strict subscription
+        // subscription
         let isSubscribed = false;
         try{
           const streamerSlug = parsed.streamer;
           const sJSON = await STREAMERS.get(streamerSlug);
           if (!sJSON) throw new Error(`Yayıncı '${streamerSlug}' KV'de yok.`);
           if (provider === "discord"){
-            // Discord abonelik doğrulaması kullanmıyorsan false kalsın
-            isSubscribed = false;
+            isSubscribed = false; // Discord'la abone kontrolü yapmıyoruz
           } else if (provider === "kick"){
-            const r = await checkKickSubscriptionStrict(tokenData.access_token, streamerSlug);
+            const r = await checkKickSubscription(tokenData.access_token, streamerSlug);
             isSubscribed = !!r.subscribed;
           }
         } catch(e){
