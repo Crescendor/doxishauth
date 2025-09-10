@@ -1,6 +1,6 @@
 /**
- * Gelişmiş Frontend Kodu v15.0 - "Cayır Cayır" Admin Paneli & Yönlendirme Düzeltmesi
- * Bu kod, v14.0 backend ve yeni geniş tasarımla tam uyumlu çalışır.
+ * Gelişmiş Frontend Kodu v16.0 - Nihai Sürüm
+ * Bu kod, v16.0 backend ve yeni geniş tasarımla tam uyumlu çalışır.
  * - Yönlendirme sorunu DÜZELTİLDİ: Yayıncı bulunamazsa artık ana sayfaya atmak yerine hata mesajı gösterir.
  * - Admin paneline "Listeyi Yenile" butonu eklendi ve işlevselliği tanımlandı.
  * - Düzenleme modalı ve tüm yeni arayüz elemanlarını yönetir.
