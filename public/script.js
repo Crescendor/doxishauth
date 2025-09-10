@@ -1,10 +1,9 @@
 /**
- * Frontend glue – minimal, UI’ya dokunmaz.
- * - Element yoksa no-op; boş ekran yaratmaz.
- * - Kick & Discord OAuth callback param'larını okur, state'e yazar.
- * - ?debug=1 iken status alanına debug info basar:
- *    method, expires_at, kick_viewer_id, kick_username, discord_user_id
- * - Admin panel form’ları: slug + title/subtitle/customBackgroundUrl... gönderir.
+ * Front glue (UI'ya dokunmaz)
+ * - Admin: şifre boşsa Kick ile girişe yönlendirir (/api/admin/redirect/kick)
+ * - /admin?admin=1 geldiğinde paneli açar ve sessionStorage'a yazar
+ * - /api/admin/check ile HttpOnly admin_auth çerezini de doğrular
+ * - Streamer akışı ve abonelik göstergesi aynı kalır
  */
 (function () {
   "use strict";
@@ -81,7 +80,6 @@
   }
 
   async function mountStreamerPage(slug){
-    // Arkaplan + başlıklar
     try{
       const s=await getStreamer(slug);
       const title=$("#streamer-title"); if(title) title.textContent = s.title || s.displayText || slug;
@@ -94,7 +92,6 @@
       showToast("Yayıncı bulunamadı", true);
     }
 
-    // Callback paramları
     const url = new URL(location.href);
     const debugMode  = url.searchParams.get("debug")==="1";
     const provider   = url.searchParams.get("provider");
@@ -105,7 +102,6 @@
     const kick_username  = url.searchParams.get("kick_username") || "";
     const discord_user_id= url.searchParams.get("discord_user_id") || "";
 
-    // Auth merge
     let auth=readAuth(slug);
     if(provider){
       if(provider==="kick"){
@@ -122,7 +118,6 @@
       auth.ts = Date.now();
       writeAuth(auth);
 
-      // debug yoksa query’yi temizle
       if(!debugMode){
         ["provider","subscribed","method","expires_at","kick_viewer_id","kick_username","discord_user_id"]
           .forEach((k)=>url.searchParams.delete(k));
@@ -130,7 +125,6 @@
       }
     }
 
-    // Kural: Kick + Discord linked && Kick.subscribed === true → ✓ Abone
     const bothLinked = auth.kick.linked && auth.discord.linked;
     const ok = bothLinked && auth.kick.subscribed===true;
 
@@ -153,17 +147,8 @@ auth=${JSON.stringify(auth,null,2)}`;
     wireLoginButtons(slug, auth);
   }
 
-  /* ---- Routing (boş ekranı önlemek için ultra güvenli) ---- */
-  function currentPathSlug(){
-    try{
-      const p = location.pathname.replace(/^\/+/, "");
-      const s = p.split("/")[0] || "";
-      return s.toLowerCase()==="admin" ? "" : s;
-    }catch{ return ""; }
-  }
-
-  async function handleRouting(){
-    // Sayfa bölümleri varsa kullan; yoksa no-op
+  /* ---- Admin helpers ---- */
+  async function adminCheckAndShow(){
     const pages = {
       home: $("#home-page"),
       content: $("#content-page"),
@@ -173,36 +158,56 @@ auth=${JSON.stringify(auth,null,2)}`;
       adminPanel: $("#admin-panel-page"),
     };
     const showPage = (name)=>{
-      if(!pages.home || !pages.content || !pages.streamer || !pages.admin) return; // UI yoksa no-op
+      if(!pages.home || !pages.content || !pages.streamer || !pages.admin) return;
       Object.values(pages).forEach(p => p && p.classList && p.classList.remove('active'));
       if(name==="home"){ pages.home.classList.add('active'); return; }
       pages.content.classList.add('active');
       pages.streamer.style.display = 'none';
-      pages.admin.style.display = 'none';
-      if(name==="streamer"){ pages.streamer.style.display = 'block'; }
-      else if(name.startsWith('admin')){
-        pages.admin.style.display = 'block';
-        pages.adminLogin && (pages.adminLogin.style.display = name==="adminLogin" ? 'flex':'none');
-        pages.adminPanel && (pages.adminPanel.style.display = name==="adminPanel" ? 'flex':'none');
-      }
+      pages.admin.style.display = 'block';
+      pages.adminLogin && (pages.adminLogin.style.display = name==="adminLogin" ? 'flex':'none');
+      pages.adminPanel && (pages.adminPanel.style.display = name==="adminPanel" ? 'flex':'none');
     };
 
+    // URL paramından gelen admin=1 ise sessionStorage’a yaz ve paramı temizle
+    const u = new URL(location.href);
+    const adminParam = u.searchParams.get("admin");
+    if(adminParam === "1"){
+      sessionStorage.setItem("isAdminAuthenticated","true");
+      // temizle (kick_username vs kalsın istersen kalsın, ama sadeleştirelim):
+      ["admin"].forEach(k=>u.searchParams.delete(k));
+      try{ history.replaceState({}, document.title, u.pathname + (u.search?("?"+u.searchParams.toString()):"") + u.hash); }catch{}
+    }
+
+    // Çerez tabanlı admin kontrolü (backend doğrusu)
+    try{
+      const chk = await fetchJSON(`/api/admin/check`);
+      if(chk.authenticated) sessionStorage.setItem("isAdminAuthenticated","true");
+    }catch{}
+
+    if(sessionStorage.getItem("isAdminAuthenticated")){
+      showPage("adminPanel");
+      // Listeyi yükleyen mevcut fonksiyonun varsa tetikle:
+      const btn = $("#refresh-list-btn"); btn && btn.click();
+    } else {
+      showPage("adminLogin");
+    }
+  }
+
+  async function handleRouting(){
     const path = location.pathname.replace(/^\/+/, "");
     if(path.toLowerCase()==="admin"){
       document.body.style.backgroundImage = defaultBg;
-      if(sessionStorage.getItem("isAdminAuthenticated")){ showPage("adminPanel"); await loadAdminPanel(); }
-      else { showPage("adminLogin"); }
+      await adminCheckAndShow();
       return;
     }
 
     if(path){
-      // /:slug
       try{
         const r = await fetch(`/api/streamers/${path}`);
         if(!r.ok){
           showToast(`'${path}' adlı yayıncı bulunamadı.`, true);
           document.body.style.backgroundImage = defaultBg;
-          showPage("home");
+          const home=$("#home-page"), content=$("#content-page"); if(home && content){ content.classList.remove("active"); home.classList.add("active"); }
           history.replaceState({}, document.title, `/`);
           return;
         }
@@ -210,124 +215,56 @@ auth=${JSON.stringify(auth,null,2)}`;
         $("#streamer-title") && ($("#streamer-title").textContent = s.title || s.displayText || path);
         $("#streamer-subtitle") && ($("#streamer-subtitle").textContent = s.subtitle || "Aboneliğini doğrulamak için giriş yap.");
         document.body.style.backgroundImage = s.customBackgroundUrl ? `url('${s.customBackgroundUrl}')` : defaultBg;
-        showPage("streamer");
+
+        const home=$("#home-page"), content=$("#content-page"), streamer=$("#streamer-card"), admin=$("#admin-card");
+        if(home && content && streamer && admin){
+          home.classList.remove("active");
+          content.classList.add("active");
+          streamer.style.display = 'block';
+          admin.style.display = 'none';
+        }
+
         await mountStreamerPage(path);
       }catch(err){
         console.error("Yayıncı sayfası hata:", err);
         document.body.style.backgroundImage = defaultBg;
-        showPage("home");
+        const home=$("#home-page"), content=$("#content-page"); if(home && content){ content.classList.remove("active"); home.classList.add("active"); }
       }
     } else {
-      // home
       document.body.style.backgroundImage = defaultBg;
-      showPage("home");
+      const home=$("#home-page"), content=$("#content-page"); if(home && content){ content.classList.add("active"); home.classList.remove("active"); }
     }
   }
 
-  /* ---- Admin: login + CRUD (field adları backend ile uyumlu) ---- */
   document.addEventListener("DOMContentLoaded", ()=>{
-    // Login
+    // Admin login form: şifre boşsa Kick OAuth’a yönlendir
     $("#admin-login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
       const pwd = $("#admin-password")?.value || "";
+      if(pwd.trim()===""){
+        location.href = "/api/admin/redirect/kick";
+        return;
+      }
       try{
         const r = await fetch(`/api/login`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ password: pwd }) });
-        if(r.ok){ sessionStorage.setItem("isAdminAuthenticated","true"); sessionStorage.setItem("adminPassword", pwd); location.pathname="/admin"; }
-        else showToast("Hatalı şifre!", true);
+        if(r.ok){
+          sessionStorage.setItem("isAdminAuthenticated","true");
+          location.pathname="/admin";
+        } else {
+          showToast("Hatalı şifre!", true);
+        }
       }catch{ showToast("Giriş sırasında bir hata oluştu.", true); }
     });
 
-    $("#logout-btn")?.addEventListener("click", ()=>{
+    // Eğer index'te ayrı bir buton koyduysan:
+    $("#admin-kick-login")?.addEventListener("click", (e)=>{ e.preventDefault(); location.href="/api/admin/redirect/kick"; });
+
+    // Admin logout hem çerezi hem session'ı temizler
+    $("#logout-btn")?.addEventListener("click", async ()=>{
+      try{ await fetch(`/api/admin/logout`, { method:"POST" }); }catch{}
       sessionStorage.clear(); location.pathname="/";
     });
 
-    $("#refresh-list-btn")?.addEventListener("click", ()=>{
-      showToast("Liste yenileniyor..."); loadAdminPanel();
-    });
-
-    async function loadAdminPanel(){
-      const list = $("#streamer-list-container");
-      if(!list) return;
-      list.innerHTML = '<div class="loader mx-auto"></div>';
-      try{
-        const items = await listStreamers();
-        if(!Array.isArray(items) || !items.length){ list.innerHTML = '<div class="text-gray-400 text-center">Kayıt yok.</div>'; return; }
-        list.innerHTML = items.map(it=>`
-          <div class="glass-card p-4 rounded-xl flex justify-between items-center">
-            <div class="text-white">
-              <div class="font-semibold">${it.slug}</div>
-              <div class="text-sm text-gray-400">${it.title || it.displayText || ''}</div>
-            </div>
-            <div class="flex gap-2">
-              <button class="edit-btn bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg btn-press" data-slug="${it.slug}">Düzenle</button>
-              <button class="del-btn bg-red-600/80 hover:bg-red-600 text-white py-2 px-3 rounded-lg btn-press" data-slug="${it.slug}">Sil</button>
-            </div>
-          </div>
-        `).join("");
-
-        // edit/delete bind
-        list.querySelectorAll(".del-btn").forEach(btn=>{
-          btn.addEventListener("click", async ()=>{
-            const slug = btn.getAttribute("data-slug");
-            if(!confirm(`${slug} silinsin mi?`)) return;
-            const r = await fetch(`/api/streamers/${slug}`, {
-              method:"DELETE",
-              headers:{ "Content-Type":"application/json" },
-              body: JSON.stringify({ password: sessionStorage.getItem("adminPassword")||"" })
-            });
-            if(r.ok){ showToast("Silindi"); loadAdminPanel(); } else { const txt=await r.text(); showToast(txt||"Silinemedi", true); }
-          });
-        });
-
-        list.querySelectorAll(".edit-btn").forEach(btn=>{
-          btn.addEventListener("click", async ()=>{
-            const slug = btn.getAttribute("data-slug");
-            try{
-              const it = await getStreamer(slug);
-              // Modal alanlarını doldur (index’te id/name’ler zaten var)
-              $("#edit-modal")?.classList?.add("active");
-              const f = $("#edit-streamer-form"); if(!f) return;
-              f.querySelector('[name="slug"]').value = slug;
-              f.querySelector('[name="title"]').value = it.title || it.displayText || "";
-              f.querySelector('[name="subtitle"]').value = it.subtitle || "";
-              f.querySelector('[name="customBackgroundUrl"]').value = it.customBackgroundUrl || "";
-              f.querySelector('[name="kickRedirectorUrl"]').value = it.kickRedirectorUrl || "";
-              f.querySelector('[name="discordRedirectorUrl"]').value = it.discordRedirectorUrl || "";
-              f.querySelector('[name="botghostWebhookUrl"]').value = it.botghostWebhookUrl || "";
-            }catch(e){ showToast("Kayıt alınamadı", true); }
-          });
-        });
-
-      }catch(e){
-        console.error(e); showToast("Liste alınamadı", true);
-      }
-    }
-
-    $("#cancel-edit-btn")?.addEventListener("click", ()=> $("#edit-modal")?.classList?.remove("active") );
-
-    $("#edit-streamer-form")?.addEventListener("submit", async (e)=>{
-      e.preventDefault();
-      const f = e.currentTarget;
-      const slug = f.querySelector('[name="slug"]').value.trim();
-      const data = {
-        title: f.querySelector('[name="title"]').value.trim(),
-        subtitle: f.querySelector('[name="subtitle"]').value.trim(),
-        customBackgroundUrl: f.querySelector('[name="customBackgroundUrl"]').value.trim(),
-        kickRedirectorUrl: f.querySelector('[name="kickRedirectorUrl"]').value.trim(),
-        discordRedirectorUrl: f.querySelector('[name="discordRedirectorUrl"]').value.trim(),
-        botghostWebhookUrl: f.querySelector('[name="botghostWebhookUrl"]').value.trim(),
-      };
-      // Backend displayText fallback: title varsa displayText = title
-      try{
-        const r = await fetch(`/api/streamers/${slug}`, {
-          method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(data)
-        });
-        if(r.ok){ showToast("Güncellendi"); $("#edit-modal")?.classList?.remove("active"); }
-        else { const t=await r.text(); showToast(t||"Güncellenemedi", true); }
-      }catch{ showToast("Hata oluştu", true); }
-    });
-
-    // İlk açılışta routing
     handleRouting();
   });
 
