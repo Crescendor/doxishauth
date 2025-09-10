@@ -1,134 +1,205 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yayıncı Destek Platformu</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #111827; /* bg-gray-900 */
-        }
-        .btn-press:active {
-            transform: scale(0.98);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
-        }
-        .page { display: none; }
-        .page.active { display: block; animation: fadeIn 0.5s; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
-</head>
-<body class="text-white flex items-center justify-center min-h-screen p-4">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Discord × Kick Rol Entegrasyonu</title>
+  <meta name="color-scheme" content="dark light" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --accent: #00ff60; /* Kick-green neon */
+      --accent-soft: #1bfd6b;
+      --danger: #ff4d4d;
+      --ok: #1ecb67;
+      --panel-bg: rgba(0,0,0,.60);
+      --line: rgba(0,255,96,.85);
+      --radius: 26px;
+      --shadow: 0 24px 80px rgba(0,0,0,.55);
+    }
 
-    <div class="w-full max-w-lg mx-auto">
-        <!-- Ana Sayfa -->
-        <div id="home-page" class="page active">
-            <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8 text-center">
-                <h1 class="text-4xl font-bold text-white mb-2">Hoş Geldiniz</h1>
-                <p class="text-gray-400 mb-8">Bu platform, favori yayıncılarınızı desteklemeniz için tasarlandı.</p>
-                <p class="text-sm text-gray-500">Görüntülemek istediğiniz yayıncının adresine gidin. Örn: site.com/yayıncıadı</p>
-            </div>
-        </div>
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; color:#f2f7f6; font-family:'Open Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial; font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; letter-spacing:.1px;
+      background: url("https://i.ibb.co/7Nbkyyss/Untitled-design.png") center bottom / cover no-repeat fixed;
+    }
 
-        <!-- Yayıncı Sayfası -->
-        <div id="streamer-page" class="page">
-            <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8 text-center">
-                <h1 class="text-3xl font-bold text-white mb-2">Yayıncı: <span id="streamer-name" class="text-green-400"></span></h1>
-                <p id="display-text" class="text-gray-300 my-8"></p>
-                <div class="space-y-4">
-                    <button id="kick-login" class="w-full flex items-center justify-center bg-[#53FC18] text-black font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 btn-press">
-                        <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M19.982 3H4.018C3.456 3 3 3.456 3 4.018v15.964C3 20.544 3.456 21 4.018 21h15.964c.562 0 1.018-.456 1.018-1.018V4.018C21 3.456 20.544 3 19.982 3zM9.133 8.016h2.153v4.298H9.133V8.016zm5.886 4.904-2.864-2.1V8.016l2.864-2.1v7.008z"/></svg>
-                        <span>Kick ile Giriş Yap</span>
-                    </button>
-                    <button id="discord-login" class="w-full flex items-center justify-center bg-[#5865F2] text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 btn-press">
-                        <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.369a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.369-.42.869-.599 1.239a18.19 18.19 0 00-3.675 0c-.18-.37-.39-.87-.599-1.239a.074.074 0 00-.079-.037A19.718 19.718 0 003.683 4.37a.074.074 0 00-.037.079C3.725 6.459 4.348 9.619 5.578 11.839a.074.074 0 00.046.057 16.571 16.571 0 005.276 2.269.074.074 0 00.065-.018 13.712 13.712 0 00.118-.099.074.074 0 00-.001-.118 12.19 12.19 0 01-1.424-2.224.074.074 0 01.018-.1c.32-.2.63-.4.92-.619a.074.074 0 01.079.009c.47.339.97.619 1.482.869a.074.074 0 01.018.1 12.238 12.238 0 01-1.424 2.224.074.074 0 00-.001.118c.04.03.08.06.118.099a.074.074 0 00.065.018 16.571 16.571 0 005.276-2.269.074.074 0 00.046-.057c1.23-2.22 1.853-5.38 1.932-7.39a.074.074 0 00-.037-.08zM8.03 10.149c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698s-.76 1.698-1.698 1.698zm7.94 0c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698.001.938-.76 1.698-1.698 1.698z"/></svg>
-                        <span>Discord ile Giriş Yap</span>
-                    </button>
-                </div>
-                <div id="subscription-status" class="mt-6 text-lg h-5 font-semibold transition-opacity duration-300"></div>
-            </div>
-        </div>
+    a{color:inherit; text-decoration:none}
 
-        <!-- Admin Giriş Ekranı -->
-        <div id="login-page" class="page">
-            <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8">
-                <h1 class="text-3xl font-bold text-white mb-6 text-center">Admin Girişi</h1>
-                <form id="login-form">
-                    <div class="mb-4">
-                        <label for="password-input" class="block text-gray-400 text-sm font-bold mb-2">Şifre</label>
-                        <input type="password" id="password-input" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
-                    </div>
-                    <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg btn-press">Giriş Yap</button>
-                    <p id="login-error" class="text-red-500 text-xs italic mt-4 text-center h-4"></p>
-                </form>
-            </div>
-        </div>
+    /* --- Global layout --- */
+    .wrap{position:relative; min-height:100svh; overflow:hidden}
+    .container{max-width:1200px; margin:0 auto; padding:24px; position:relative; z-index:2}
 
-        <!-- Admin Paneli -->
-        <div id="admin-page" class="page">
-            <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-8">
-                <h1 class="text-3xl font-bold text-white mb-6 text-center">Admin Paneli</h1>
-                
-                <form id="add-streamer-form" class="space-y-4 bg-gray-900 p-4 rounded-lg border border-gray-700">
-                    <h2 class="text-xl font-semibold text-white">Yeni Yayıncı Ekle</h2>
-                    <div>
-                        <label for="streamer-slug-input" class="block text-sm font-medium text-gray-300">Yayıncı URL Adı (örn: elraenn)</label>
-                        <input type="text" id="streamer-slug-input" placeholder="Sadece küçük harf ve rakam" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
-                    </div>
-                    <div>
-                        <label for="display-text-input" class="block text-sm font-medium text-gray-300">Ekranda Görünecek Yazı</label>
-                        <input type="text" id="display-text-input" placeholder="Yayıncı sayfasına hoş geldiniz!" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
-                    </div>
-                    <fieldset class="border border-gray-600 p-3 rounded-lg">
-                        <legend class="text-sm font-medium text-gray-300 px-2">Discord Ayarları (İsteğe Bağlı)</legend>
-                        <div class="space-y-3">
-                             <div>
-                                <label for="discord-guild-id-input" class="block text-sm font-medium text-gray-400">Discord Sunucu ID</label>
-                                <input type="text" id="discord-guild-id-input" placeholder="Sunucu ID'si" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label for="discord-role-id-input" class="block text-sm font-medium text-gray-400">Discord Abone Rol ID</label>
-                                <input type="text" id="discord-role-id-input" placeholder="Abone rolünün ID'si" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label for="discord-bot-token-input" class="block text-sm font-medium text-gray-400">Discord Bot Token</label>
-                                <input type="text" id="discord-bot-token-input" placeholder="Rol kontrolü yapacak botun token'ı" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            </div>
-                        </div>
-                    </fieldset>
-                    <button type="submit" id="add-streamer-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg btn-press">
-                        <span>Yayıncıyı Ekle</span>
-                    </button>
-                    <p id="form-error" class="text-red-400 text-sm text-center h-4"></p>
-                </form>
+    /* crest (sol logo alanı) */
+    .crest-wrap{position:fixed; left:32px; top:120px; width:240px; display:none}
+    @media(min-width:1200px){ .crest-wrap{display:block;} }
+    .crest-card{background:rgba(255,255,255,.06); border:1px solid rgba(0,255,96,.25); border-radius:18px; padding:14px; box-shadow:var(--shadow)}
+    .crest-img{display:block; width:100%; height:auto; border-radius:12px; opacity:.95}
 
-                <div class="mt-8">
-                    <h2 class="text-xl font-semibold mb-3">Eklenmiş Yayıncılar</h2>
-                    <div id="streamer-list" class="space-y-2 min-h-[50px]">
-                        <!-- Yayıncılar buraya JS ile eklenecek -->
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <p class="text-center text-gray-500 text-xs mt-4">&copy;2025 Proje Adınız. Tüm hakları saklıdır.</p>
-    </div>
+    /* sayfa bölümleri */
+    .page{display:none}
+    .page.active{display:block}
+
+    /* merkez panel */
+    .panel{margin:70px auto 0; width:min(980px, 92vw); background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)), var(--panel-bg); border-radius:var(--radius);
+      border:2px solid var(--line); box-shadow:0 0 0 4px rgba(0,255,96,.12) inset, 0 0 70px rgba(0,255,96,.12); backdrop-filter:saturate(140%) blur(8px)}
+    .panel .inner{padding:42px 34px 34px; text-align:center}
+
+    h1{margin:0 0 8px; font-size:44px; letter-spacing:.2px; font-weight:800}
+    .subtitle{color:#d5dfdd; margin-bottom:26px}
+
+    .btns{display:grid; grid-template-columns:auto auto; gap:12px; justify-content:center; justify-items:center; margin:12px 0 6px}
+    @media(max-width:760px){.btns{grid-template-columns:1fr}}
+
+    .cta{display:inline-flex; align-items:center; justify-content:center; gap:8px; font-weight:700; font-size:1.06rem; letter-spacing:.05px; border-radius:10px; padding:0.45em 0.8em; border:1px solid #000; box-shadow:var(--shadow); cursor:pointer; user-select:none; width:auto; line-height:1.1;}
+    .cta.kick{background:var(--accent); color:#07150a}
+    .cta.dc{background:#5865F2; color:white; border-color:#3b49c8}
+    .cta.disabled{opacity:.45; filter:grayscale(.3); pointer-events:none}
     
-    <script src="/script.js"></script>
+
+
+    .status-row{display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-top:16px}
+    .chip{display:inline-flex; align-items:center; gap:8px; font-weight:800; padding:8px 12px; border-radius:999px; font-size:14px; border:1px solid rgba(255,255,255,.12)}
+    .chip.no{background:rgba(255,60,70,.18); color:#ff9aa6; border-color:rgba(255,60,70,.35)}
+    .chip.ok{background:rgba(0,255,96,.18); color:#90ffb6; border-color:rgba(0,255,96,.35)}
+    .chip.muted{background:rgba(255,255,255,.06); color:#c8d2d1}
+
+    .ids{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:12px}
+    @media(max-width:760px){.ids{grid-template-columns:1fr}}
+    .idbox{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); padding:10px 12px; border-radius:12px; font-size:13px; color:#e2ecea}
+
+    .success{margin:26px auto 0; display:inline-flex; align-items:center; gap:12px; padding:14px 18px; border-radius:999px; font-weight:800; color:#2a1a00; background:linear-gradient(180deg,#ffcd42,#f7a20a); border:1px solid #b56c00; box-shadow:0 8px 30px rgba(255,200,60,.25)}
+
+    .logout{position:fixed; right:28px; top:28px; background:#ff4d4d; color:#2b0b0b; border:1px solid #7b1515; padding:10px 14px; border-radius:999px; font-weight:800; box-shadow:var(--shadow); display:none; z-index:9}
+
+    footer{margin:18px 0 0; text-align:center; color:#c9d2d0; font-size:14px}
+
+    /* --- Admin/Forms --- */
+    .form-row{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+    @media(max-width:760px){.form-row{grid-template-columns:1fr}}
+    label{display:block; text-align:left; font-weight:800; margin:8px 0 6px}
+    input{width:100%; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.12); color:#eef6f3; padding:12px 14px; border-radius:12px}
+    .btn{display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:0.85em 1.1em; border-radius:12px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.08); color:#fff; font-weight:400; cursor:pointer}
+    .btn.primary{background:var(--accent); color:#063311; border-color:transparent}
+
+    .list{display:grid; gap:10px; margin-top:12px}
+    .list-item{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:12px; display:flex; justify-content:space-between; align-items:center}
+    .delete-btn{background:#ff4d4d; color:#2b0b0b; border:1px solid #7b1515; padding:8px 12px; border-radius:12px; font-weight:800; cursor:pointer}
+
+    /* küçük loader */
+    .loader{width:20px; height:20px; border-radius:50%; border:3px solid rgba(255,255,255,.18); border-top-color:#fff; animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- sol crest/arma (opsiyonel görsel) -->
+    <aside class="crest-wrap" aria-hidden="true">
+      <div class="crest-card">
+        <img class="crest-img" src="/doxish-crest.png" alt="Doxish amblem" onerror="this.parentElement.style.display='none'">
+      </div>
+    </aside>
+
+    <div class="container">
+      <!-- STREAMER PAGE -->
+      <section id="streamer-page" class="page active">
+        <div class="panel">
+          <div class="inner">
+            <h1 id="streamer-name">Yayıncı Adı</h1>
+            <div class="subtitle" id="display-text">Discord Kanalı Kick Abone Rol Entegrasyonu</div>
+
+            <div class="btns">
+              <button id="discord-login" class="cta dc">Discord ile Giriş Yap</button>
+              <button id="kick-login" class="cta kick">Kick ile Giriş Yap</button>
+            </div>
+
+            <div class="status-row">
+              <div class="chip no">Discord : Bağlı Değil</div>
+              <div id="subscription-status" class="chip no">Kick : Bağlı Değil</div>
+            </div>
+
+            <div class="ids">
+              <div class="idbox">Discord ID : —</div>
+              <div class="idbox">Kick ID : —</div>
+            </div>
+
+            <div id="success-pill" class="success" style="display:none">Sayfayı kapatabilirsiniz. Teşekkürler. :)</div>
+
+            <footer>2025 — Doxish tarafından bu Dünya’da sevgiyle yapıldı. • Discord iletişim: <b>doxish</b></footer>
+          </div>
+        </div>
+      </section>
+
+      <!-- HOME PAGE (isteğe bağlı landing) -->
+      <section id="home-page" class="page">
+        <div class="panel"><div class="inner">
+          <h1>doxishauth</h1>
+          <div class="subtitle">Kick & Discord entegrasyon landing</div>
+          <p>Bir yayıncı slug'ına gidin: <code>/olgarto</code> gibi.</p>
+        </div></div>
+      </section>
+
+      <!-- LOGIN PAGE (admin) -->
+      <section id="login-page" class="page">
+        <div class="panel"><div class="inner" style="max-width:680px; margin:0 auto">
+          <h1>Admin Girişi</h1>
+          <form id="login-form" style="margin-top:18px">
+            <label for="password-input">Şifre</label>
+            <input id="password-input" type="password" placeholder="<ADMIN_PASSWORD>" />
+            <div id="login-error" style="color:#ffb3b3; font-weight:700; margin:10px 0 0"></div>
+            <div style="margin-top:14px"><button class="btn primary" type="submit">Giriş Yap</button></div>
+          </form>
+        </div></div>
+      </section>
+
+      <!-- ADMIN PAGE -->
+      <section id="admin-page" class="page">
+        <div class="panel"><div class="inner">
+          <h1>Yayıncı Yönetimi</h1>
+          <form id="add-streamer-form" style="margin-top:18px">
+            <div class="form-row">
+              <div>
+                <label for="streamer-slug-input">Slug</label>
+                <input id="streamer-slug-input" placeholder="yayinci-slug" />
+              </div>
+              <div>
+                <label for="display-text-input">Display Text</label>
+                <input id="display-text-input" placeholder="Selam" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div>
+                <label for="discord-guild-id-input">Discord Guild Id</label>
+                <input id="discord-guild-id-input" placeholder="opsiyonel" />
+              </div>
+              <div>
+                <label for="discord-role-id-input">Discord Role Id</label>
+                <input id="discord-role-id-input" placeholder="opsiyonel" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div>
+                <label for="discord-bot-token-input">Discord Bot Token</label>
+                <input id="discord-bot-token-input" placeholder="opsiyonel" />
+              </div>
+              <div style="display:flex; align-items:end; gap:10px">
+                <button id="add-streamer-btn" class="btn primary" type="submit"><span>Yayıncıyı Ekle</span></button>
+                <div id="form-error" style="color:#ffb3b3; font-weight:700"></div>
+              </div>
+            </div>
+          </form>
+
+          <div class="list" id="streamer-list"></div>
+        </div></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Uygulama JS -->
+  <script src="/script.js"></script>
 </body>
 </html>
-
