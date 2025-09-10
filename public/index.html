@@ -1,247 +1,189 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Kick / Discord Abonelik Doğrulama</title>
-    <meta name="description" content="Kick ve Discord Abonelik Doğrulama Sistemi" />
-    <link rel="icon" href="/favicon.ico" />
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yayıncı Doğrulama</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg: #0b0f17;
-            --card: rgba(255,255,255,0.06);
-            --glass: rgba(255,255,255,0.08);
-            --border: rgba(255,255,255,0.12);
-            --text: #e5e7eb;
-            --muted: #a1a1aa;
-            --primary: #22c55e;
-            --danger: #ef4444;
-            --warn: #f59e0b;
-        }
-
-        * { box-sizing: border-box; }
-        html, body { height: 100%; }
         body {
-            margin: 0;
-            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-            background: radial-gradient(1200px 800px at 20% 10%, rgba(56,189,248,0.08), transparent),
-                        radial-gradient(1000px 600px at 80% 30%, rgba(34,197,94,0.08), transparent),
-                        linear-gradient(180deg, #0b0f17 0%, #0a0e16 100%);
-            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+            background-image: url('https://i.ibb.co/7Nbkyyss/Untitled-design.png');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
-
-        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
-        /* Glass / Card */
         .glass-card {
-            background: var(--glass);
-            border: 1px solid var(--border);
-            backdrop-filter: blur(10px);
+            background: rgba(16, 16, 16, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(43, 255, 0, 0.1);
         }
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 16px;
+        .btn-press:active {
+            transform: scale(0.98);
         }
-
-        /* Controls */
-        .btn {
-            border: 1px solid var(--border);
-            background: rgba(255,255,255,0.06);
-            color: var(--text);
-            padding: 10px 14px;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: transform .06s ease, background .15s ease, border-color .15s ease;
-        }
-        .btn:hover {
-            background: rgba(255,255,255,0.12);
-            border-color: rgba(255,255,255,0.22);
-        }
-        .btn-press:active { transform: translateY(1px); }
-
-        .btn-primary { background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.38); }
-        .btn-primary:hover { background: rgba(34,197,94,0.22); border-color: rgba(34,197,94,0.6); }
-
-        .btn-danger { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.38); }
-        .btn-danger:hover { background: rgba(239,68,68,0.22); border-color: rgba(239,68,68,0.6); }
-
-        .btn-outline { background: transparent; }
-
-        .input, .select {
-            width: 100%;
-            padding: 10px 12px;
-            color: var(--text);
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-        }
-
-        /* Badges */
-        .status-badge {
-            font-size: 12px;
-            font-weight: 700;
-            margin-right: 8px;
-            padding: 6px 10px;
-            border-radius: 999px;
-            display: inline-block;
-        }
-        .status-badge-red   { background: #3b0b0b; color: #fecaca; }
-        .status-badge-green { background: #072b16; color: #bbf7d0; }
-        .status-badge-yellow{ background: #3a2a06; color: #fde68a; }
-
-        /* Layout bits */
-        header .brand { font-weight: 800; letter-spacing: .3px; }
-        .grid { display: grid; gap: 16px; }
-        .grid-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
-        .grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
-        @media (max-width: 860px) {
-            .grid-2, .grid-3 { grid-template-columns: 1fr; }
-        }
-
-        /* Modal & Toast */
-        .modal { position: fixed; inset: 0; display: none; background: rgba(0,0,0,0.45); }
-        .modal.show { display: flex; }
-        .modal-content { max-width: 560px; width: 90%; }
-        .toast {
+        .page {
             display: none;
-            background: rgba(0,0,0,0.7);
-            border-color: rgba(255,255,255,0.12);
-        }
-        .toast.show { display: block; animation: fadein .2s ease; }
-        @keyframes fadein { from{opacity:0; transform: translateY(6px)} to{opacity:1; transform: translateY(0)} }
-
-        /* Admin login box */
-        .admin-box { max-width: 420px; margin: 0 auto; }
-
-        /* streamer card visuals */
-        .hero {
-            border-radius: 18px;
-            overflow: hidden;
-            position: relative;
-            border: 1px solid var(--border);
-        }
-        .hero .bg {
+            animation: fadeIn 0.5s ease-in-out;
             width: 100%;
-            height: 220px;
-            background: linear-gradient(145deg, rgba(34,197,94,0.22), rgba(56,189,248,0.22));
-            display: block;
         }
-        .hero .overlay {
-            position: absolute; inset: 0;
-            background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.35));
+        .page.active {
+            display: flex;
         }
-        .hero .meta {
-            position: absolute; left: 16px; right: 16px; bottom: 12px;
-            display: flex; align-items: center; justify-content: space-between;
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loader {
+            border: 4px solid #333;
+            border-top: 4px solid #2BFF00;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
         }
-        .hero .meta .title { font-weight: 800; font-size: 22px; }
-        .hero .meta .subtitle { color: var(--muted); font-size: 13px; }
-
-        /* spacer for footer */
-        .footer-spacer { height: 110px; }
-        .footer-fixed {
-            position: fixed; left: 0; right: 0; bottom: 16px;
-            display: flex; justify-content: center; pointer-events: none;
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .toast {
+            visibility: hidden;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease-in-out;
         }
-        .footer-fixed > * { pointer-events: all; }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+            visibility: visible;
+        }
+         /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            animation: fadeInModal 0.3s ease-out;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .modal-content {
+            margin: auto;
+            animation: slideInModal 0.3s ease-out;
+        }
+        @keyframes fadeInModal { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes slideInModal { from { transform: translateY(-30px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+        .status-badge {
+            @apply text-xs font-bold mr-2 px-2.5 py-1 rounded-full;
+        }
+        .status-badge-green {
+            @apply bg-green-900 text-green-300;
+        }
+        .status-badge-red {
+            @apply bg-red-900 text-red-300;
+        }
     </style>
 </head>
-<body>
-    <header class="container" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-        <div class="brand">kick/discord verify</div>
-        <nav style="display:flex;gap:8px;align-items:center;">
-            <a class="btn btn-outline btn-press" href="/">Ana Sayfa</a>
-            <a class="btn btn-outline btn-press" href="/admin">Admin</a>
-        </nav>
-    </header>
+<body class="text-gray-200">
 
-    <main class="container">
-        <!-- STREAMER PAGE -->
-        <section id="channel-page" style="display:none;">
-            <div id="streamer-card">
-                <div class="hero">
-                    <div id="hero-bg" class="bg"></div>
-                    <div class="overlay"></div>
-                    <div class="meta">
+    <!-- Ana Sayfa (Yönlendirme) -->
+    <div id="home-page" class="page items-center justify-center min-h-screen w-full">
+        <div class="text-center">
+             <div class="glass-card rounded-2xl shadow-2xl p-8 text-center w-full max-w-md">
+                 <h1 class="text-4xl font-extrabold text-white mb-2">Hoş Geldiniz</h1>
+                <p class="text-gray-400">Bu platform, favori yayıncılarınızı desteklemeniz için tasarlandı.</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- İçerik Sayfası (Yayıncı ve Admin) -->
+    <div id="content-page" class="page items-center justify-center min-h-screen w-full p-4">
+        
+        <!-- YAYINCI KARTI -->
+        <div id="streamer-card" class="w-full max-w-md" style="display: none;">
+            <div class="glass-card rounded-2xl shadow-2xl p-8 text-center">
+                <h1 id="streamer-title" class="text-4xl font-extrabold text-white mb-2"></h1>
+                <p id="streamer-subtitle" class="text-gray-400 mb-8"></p>
+                
+                <div class="space-y-4 mb-6">
+                    <button id="kick-login" class="w-full flex items-center justify-center bg-green-500/80 hover:bg-green-500/100 text-white font-bold py-3 px-4 rounded-lg transition-all transform btn-press">
+                        <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M19.982 3H4.018C3.456 3 3 3.456 3 4.018v15.964C3 20.544 3.456 21 4.018 21h15.964c.562 0 1.018-.456 1.018-1.018V4.018C21 3.456 20.544 3 19.982 3zM9.133 8.016h2.153v4.298H9.133V8.016zm5.886 4.904-2.864-2.1V8.016l2.864-2.1v7.008z"/></svg>
+                        <span>Kick ile Giriş Yap</span>
+                    </button>
+                    <button id="discord-login" class="w-full flex items-center justify-center bg-blue-600/80 hover:bg-blue-600/100 text-white font-bold py-3 px-4 rounded-lg transition-all transform btn-press">
+                        <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.369a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.369-.42.869-.599 1.239a18.19 18.19 0 00-3.675 0c-.18-.37-.39-.87-.599-1.239a.074.074 0 00-.079-.037A19.718 19.718 0 003.683 4.37a.074.074 0 00-.037.079C3.725 6.459 4.348 9.619 5.578 11.839a.074.074 0 00.046.057 16.571 16.571 0 005.276 2.269.074.074 0 00.065-.018 13.712 13.712 0 00.118-.099.074.074 0 00-.001-.118 12.19 12.19 0 01-1.424-2.224.074.074 0 01.018-.1c.32-.2.63-.4.92-.619a.074.074 0 01.079.009c.47.339.97.619 1.482.869a.074.074 0 01.018.1 12.238 12.238 0 01-1.424 2.224.074.074 0 00-.001.118c.04.03.08.06.118.099a.074.074 0 00.065.018 16.571 16.571 0 005.276-2.269.074.074 0 00.046-.057c1.23-2.22 1.853-5.38 1.932-7.39a.074.074 0 00-.037-.08zM8.03 10.149c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698s-.76 1.698-1.698 1.698zm7.94 0c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698.001.938-.76 1.698-1.698 1.698z"/></svg>
+                        <span>Discord ile Giriş Yap</span>
+                    </button>
+                </div>
+                <div id="status-container" class="space-y-3">
+                    <!-- Durumlar buraya JS ile eklenecek -->
+                </div>
+                 <p id="result-message" class="hidden mt-6 text-lg text-green-300 font-semibold transition-opacity duration-300">Sayfayı kapatabilirsiniz. Teşekkürler :)</p>
+            </div>
+        </div>
+
+        <!-- ADMIN KARTI -->
+        <div id="admin-card" class="w-full max-w-5xl" style="display: none;">
+            <div id="admin-login-page" class="page items-center justify-center w-full">
+                 <div class="glass-card rounded-2xl shadow-2xl p-8 text-center w-full max-w-sm">
+                    <h1 class="text-3xl font-bold text-white mb-6">Yönetici Girişi</h1>
+                    <form id="admin-login-form">
+                        <input type="password" id="admin-password-input" placeholder="••••••••••" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500 mb-4" required>
+                        <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-4 rounded-lg btn-press transition-colors">Giriş Yap</button>
+                    </form>
+                </div>
+            </div>
+
+            <div id="admin-panel-page" class="page flex-col w-full">
+                <div class="glass-card rounded-2xl shadow-2xl p-8 w-full">
+                    <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
+                         <h1 class="text-4xl font-extrabold text-white">Yönetim Paneli</h1>
+                         <button id="logout-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg btn-press transition-colors">Çıkış Yap</button>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <div>
-                            <div id="streamer-title" class="title">Yayıncı</div>
-                            <div id="streamer-subtitle" class="subtitle">Doğrulama için giriş yap</div>
+                            <h2 class="text-2xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Yeni Yayıncı Ekle</h2>
+                            <form id="add-streamer-form" class="space-y-4 mt-4">
+                                <input type="text" name="slug" placeholder="Yayıncı URL Adı (örn: elraenn)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                                <input type="text" name="title" placeholder="Başlık (örn: Elraenn Abonelik)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                                <input type="text" name="subtitle" placeholder="Alt Başlık (örn: Kick & Discord Doğrulama)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                                <input type="url" name="customBackgroundUrl" placeholder="Özel Arkaplan Linki (İsteğe Bağlı)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <input type="url" name="botghostWebhookUrl" placeholder="BotGhost Webhook URL (Discord için)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-4 rounded-lg btn-press transition-colors">Yayıncıyı Ekle</button>
+                            </form>
                         </div>
-                        <div id="status-container" class="subtitle"></div>
+                        <div>
+                            <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                                <h2 class="text-2xl font-semibold text-white">Eklenmiş Yayıncılar</h2>
+                                <button id="refresh-list-btn" class="bg-gray-600/50 hover:bg-gray-600/80 text-white font-bold py-2 px-3 rounded-lg btn-press text-sm flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="w-4 h-4">
+                                        <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                                        <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+                                    </svg>
+                                    Yenile
+                                </button>
+                            </div>
+                            <div id="streamer-list-container" class="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                                <!-- Yayıncılar buraya JS ile eklenecek -->
+                            </div>
+                        </div>
                     </div>
                 </div>
-
-                <div class="grid grid-2" style="margin-top:16px;">
-                    <div class="card">
-                        <h3 style="margin:0 0 12px 0;">Kick Doğrulama</h3>
-                        <p class="subtitle" style="margin-top:6px;">Aboneliğini doğrulamak için Kick ile giriş yap.</p>
-                        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
-                            <button id="kick-login" class="btn btn-primary btn-press">Kick ile Giriş Yap</button>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <h3 style="margin:0 0 12px 0;">Discord (opsiyonel)</h3>
-                        <p class="subtitle" style="margin-top:6px;">Discord ile giriş sadece kimlik kontrolü içindir.</p>
-                        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
-                            <button id="discord-login" class="btn btn-press">Discord ile Giriş Yap</button>
-                        </div>
-                    </div>
-                </div>
             </div>
+        </div>
+    </div>
 
-            <!-- Admin shortcut -->
-            <div style="margin-top:16px;">
-                <a class="btn btn-outline btn-press" href="/admin">Yayıncı Paneline Git</a>
-            </div>
-        </section>
-
-        <!-- HOME / LIST PAGE -->
-        <section id="home-page" style="display:none;">
-            <div class="card">
-                <h2 style="margin:0 0 12px 0;">Yayıncılar</h2>
-                <div id="streamers-list" class="grid grid-3"></div>
-            </div>
-        </section>
-
-        <!-- ADMIN PAGE -->
-        <section id="admin-page" style="display:none;">
-            <div class="grid grid-2">
-                <div class="card admin-box">
-                    <h2 style="margin:0 0 12px 0;">Admin Girişi</h2>
-                    <form id="admin-login-form" class="grid" style="gap:10px;">
-                        <input id="admin-password" class="input" type="password" placeholder="Admin şifresi" />
-                        <button class="btn btn-primary btn-press" type="submit">Giriş Yap</button>
-                    </form>
-                    <div id="admin-login-status" class="subtitle" style="margin-top:8px;"></div>
-                </div>
-
-                <div class="card">
-                    <h2 style="margin:0 0 12px 0;">Yayıncı Ekle</h2>
-                    <form id="add-streamer-form" class="grid" style="gap:10px;">
-                        <input class="input" name="slug" placeholder="slug (ör: doxish)" required />
-                        <input class="input" name="displayText" placeholder="Görünen metin" required />
-                        <input class="input" name="discordGuildId" placeholder="Discord Guild ID (opsiyonel)" />
-                        <input class="input" name="discordRoleId" placeholder="Discord Role ID (opsiyonel)" />
-                        <input class="input" name="discordBotToken" placeholder="Discord Bot Token (opsiyonel)" />
-                        <input class="input" name="broadcaster_user_id" placeholder="Kick broadcaster_user_id (opsiyonel)" />
-                        <button class="btn btn-primary btn-press" type="submit">Ekle</button>
-                    </form>
-                </div>
-            </div>
-
-            <div class="card" style="margin-top:16px;">
-                <h2 style="margin:0 0 12px 0;">Kayıtlı Yayıncılar</h2>
-                <div id="streamers-table" class="grid"></div>
-            </div>
-        </section>
-    </main>
-
-    <div class="footer-spacer"></div>
-    <div class="footer-fixed pointer-events-none">
+     <!-- Footer -->
+    <div class="fixed bottom-0 left-0 right-0 p-4 flex justify-center pointer-events-none">
         <div class="glass-card text-center text-xs text-gray-400 py-2 px-4 rounded-full pointer-events-auto">
             2025 - Doxish tarafından bu Dünya'da sevgiyle yapıldı. | Discord İletişim: ".doxish"
         </div>
@@ -257,44 +199,31 @@
             <form id="edit-streamer-form" class="space-y-4">
                 <input type="hidden" name="slug">
                 <div>
-                    <label class="block text-sm mb-1 text-gray-300">Görünen Metin</label>
-                    <input type="text" name="displayText" class="input" placeholder="Görünen metin" required>
-                </div>
-                <div class="grid grid-2" style="gap:12px;">
-                    <div>
-                        <label class="block text-sm mb-1 text-gray-300">Discord Guild ID</label>
-                        <input type="text" name="discordGuildId" class="input" placeholder="Discord Guild ID">
-                    </div>
-                    <div>
-                        <label class="block text-sm mb-1 text-gray-300">Discord Role ID</label>
-                        <input type="text" name="discordRoleId" class="input" placeholder="Discord Role ID">
-                    </div>
+                    <label class="text-sm font-medium text-gray-400">Başlık</label>
+                    <input type="text" name="title" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
                 </div>
                 <div>
-                    <label class="block text-sm mb-1 text-gray-300">Discord Bot Token</label>
-                    <input type="text" name="discordBotToken" class="input" placeholder="Discord Bot Token">
+                    <label class="text-sm font-medium text-gray-400">Alt Başlık</label>
+                    <input type="text" name="subtitle" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
                 </div>
                 <div>
-                    <label class="block text-sm mb-1 text-gray-300">Kick broadcaster_user_id (opsiyonel)</label>
-                    <input type="text" name="broadcaster_user_id" class="input" placeholder="Kick broadcaster_user_id">
+                    <label class="text-sm font-medium text-gray-400">Özel Arkaplan Linki</label>
+                    <input type="url" name="customBackgroundUrl" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
                 </div>
-
-                <div class="flex items-center justify-end gap-3">
-                    <button type="button" id="edit-cancel" class="btn btn-press">Vazgeç</button>
-                    <button type="submit" class="btn btn-primary btn-press">Kaydet</button>
+                <div>
+                    <label class="text-sm font-medium text-gray-400">BotGhost Webhook URL</label>
+                    <input type="url" name="botghostWebhookUrl" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                </div>
+                <div class="flex gap-4 pt-4">
+                    <button type="button" id="cancel-edit-btn" class="w-full bg-gray-600/50 hover:bg-gray-600/80 text-white font-bold py-3 px-4 rounded-lg btn-press transition-colors">İptal</button>
+                    <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-4 rounded-lg btn-press transition-colors">Kaydet</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Sağ üst global logout -->
-    <button id="global-logout"
-      class="fixed top-4 right-4 z-50 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm backdrop-blur border border-white/10 shadow-lg btn-press"
-      style="position:fixed;top:16px;right:16px;z-index:9999;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.12);"
-      title="Çıkış yap">
-      Çıkış yap
-    </button>
-
     <script src="/script.js"></script>
+
 </body>
 </html>
+
