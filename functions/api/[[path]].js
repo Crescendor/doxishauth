@@ -1,5 +1,5 @@
 /**
- * Kick Abonelik Doğrulama – v10.2 (expires_at-only)
+ * Kick Abonelik Doğrulama – v10.3 (expires_at-only + debug ids)
  * Cloudflare Pages Functions (KV: STREAMERS)
  *
  * Sıra:
@@ -7,7 +7,7 @@
  *  0b) /api/v2/channels/{slug}/me         (Authorization, Referer)
  *  1)  /api/v2/channels/{channelId}/users/{viewerId}/identity
  *  2)  /api/v2/channels/{slug}/users/{username}
- *  3)  /api/v2/channels/{slug}/subscribers/{username} (varsa)
+ *  3)  /api/v2/channels/{slug}/subscribers/{username}
  *
  * KURAL: JSON içinde herhangi derinlikte string `expires_at` bulunursa ABONE.
  *
@@ -126,7 +126,6 @@ async function getSubscriberByUsername(slug, username, bearer){
   return { ok:true, data:await safeJsonRes(r) };
 }
 
-/* NEW: kullanıcının tüm abonelikleri */
 async function getUserSubscriptions(bearer, refererSlug){
   const r=await fetch(`https://kick.com/api/v2/user/subscriptions`, { headers: siteHeaders(refererSlug, bearer) });
   if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
@@ -143,11 +142,10 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug){
   if (subs.ok && subs.data){
     const arr = Array.isArray(subs.data) ? subs.data : (Array.isArray(subs.data?.data) ? subs.data.data : []);
     for (const item of arr){
-      // slug veya channel eşle
       const slug = item?.channel?.slug || item?.streamer_channel?.slug || item?.user?.streamer_channel?.slug;
       if (slug && String(slug).toLowerCase() === String(streamerSlug).toLowerCase()){
         const ev = evidence(item);
-        if (ev.hasSubscription) return { subscribed:true, method:"user/subscriptions", expires_at:ev.expires_at };
+        if (ev.hasSubscription) return { subscribed:true, method:"user/subscriptions", expires_at:ev.expires_at, viewerId:null, viewerUsername:null, channelId:null };
       }
     }
   }
@@ -156,51 +154,56 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug){
   const me = await getChannelMe(streamerSlug, accessToken);
   if (me.ok && me.data){
     const ev = evidence(me.data);
-    if (ev.hasSubscription) return { subscribed:true, method:"me", expires_at:ev.expires_at };
+    if (ev.hasSubscription) return { subscribed:true, method:"me", expires_at:ev.expires_at, viewerId:null, viewerUsername:null, channelId:null };
   }
 
   // 1) viewer + channel
   const viewer = await getKickViewer(accessToken);
   const { channelId } = await getChannelBySlug(streamerSlug);
 
-  // 1) identity by userId
+  // identity by userId
   const idRes = await getIdentityByUserId(channelId, viewer.id, streamerSlug);
   if(!idRes.ok) throw new Error(`identity HTTP ${idRes.status||"??"}\n${idRes.raw||""}`);
   if(idRes.data){
     const ev = evidence(idRes.data);
-    if(ev.hasSubscription) return { subscribed:true, method:"identity:userId", expires_at:ev.expires_at };
+    if(ev.hasSubscription) return { subscribed:true, method:"identity:userId", expires_at:ev.expires_at, viewerId:viewer.id, viewerUsername:viewer.username, channelId };
   }
 
-  // 2) identity by username
+  // identity by username
   const unRes = await getIdentityByUsername(streamerSlug, viewer.username, streamerSlug);
   if(!unRes.ok) throw new Error(`identity(username) HTTP ${unRes.status||"??"}\n${unRes.raw||""}`);
   if(unRes.data){
     const ev = evidence(unRes.data);
-    if(ev.hasSubscription) return { subscribed:true, method:"identity:username", expires_at:ev.expires_at };
+    if(ev.hasSubscription) return { subscribed:true, method:"identity:username", expires_at:ev.expires_at, viewerId:viewer.id, viewerUsername:viewer.username, channelId };
   }
 
-  // 3) subscribers/{username}
+  // subscribers/{username}
   const sRes = await getSubscriberByUsername(streamerSlug, viewer.username, accessToken);
   if(!sRes.ok) throw new Error(`subscribers(username) HTTP ${sRes.status||"??"}\n${sRes.raw||""}`);
   if(sRes.data){
     const ev = evidence(sRes.data);
-    if(ev.hasSubscription) return { subscribed:true, method:"subscribers:username", expires_at:ev.expires_at };
+    if(ev.hasSubscription) return { subscribed:true, method:"subscribers:username", expires_at:ev.expires_at, viewerId:viewer.id, viewerUsername:viewer.username, channelId };
   }
 
-  return { subscribed:false, method:"none" };
+  return { subscribed:false, method:"none", viewerId:viewer.id, viewerUsername:viewer.username, channelId };
 }
 
-/* ---------- Discord (opsiyonel) ---------- */
+/* ---------- Discord helper (id çekmek için) ---------- */
+async function getDiscordMe(accessToken){
+  const r=await fetch("https://discord.com/api/users/@me",{ headers:{ Authorization:`Bearer ${accessToken}` }});
+  if(!r.ok) throw new Error(`Discord /@me HTTP ${r.status}: ${await r.text()}`);
+  return r.json(); // { id, username, ... }
+}
+
 async function checkDiscordSubscription(accessToken, streamerInfo){
-  const { discordGuildId, discordRoleId, discordBotToken } = streamerInfo||{};
-  if(!discordGuildId || !discordRoleId || !discordBotToken) return false;
-  const u=await fetch("https://discord.com/api/users/@me",{ headers:{ Authorization:`Bearer ${accessToken}` }});
-  if(!u.ok) return false;
-  const me=await u.json();
+  const { discordGuildId, discordRoleId, discordBotToken } = streamerInfo || {};
+  if(!discordGuildId || !discordRoleId || !discordBotToken) return { hasRole:false, userId:null };
+  const me = await getDiscordMe(accessToken);
   const m=await fetch(`https://discord.com/api/guilds/${discordGuildId}/members/${me.id}`, { headers:{ Authorization:`Bot ${discordBotToken}` }});
-  if(!m.ok) return false;
+  if(!m.ok) return { hasRole:false, userId:me.id };
   const member=await m.json();
-  return Array.isArray(member.roles) && member.roles.includes(discordRoleId);
+  const ok = Array.isArray(member.roles) && member.roles.includes(discordRoleId);
+  return { hasRole: ok, userId: me.id };
 }
 
 /* ---------- token exchange ---------- */
@@ -286,20 +289,16 @@ async function handleRequest(context){
           authUrl.searchParams.set("response_type","code");
           authUrl.searchParams.set("state", state.random);
         } else if(provider==="kick"){
-          const verifier=generateCodeVerifier();
-          const challenge=await generateCodeChallenge(verifier);
-          state.codeVerifier=verifier;
+          const verifier=generateCodeVerifier(); const challenge=await generateCodeChallenge(verifier); state.codeVerifier=verifier;
           authUrl=new URL("https://id.kick.com/oauth/authorize");
           authUrl.searchParams.set("client_id", env.KICK_CLIENT_ID);
           authUrl.searchParams.set("redirect_uri", `${env.APP_URL}/api/auth/callback/kick`);
-          authUrl.searchParams.set("scope","user:read"); // viewer bilgisi yeter
+          authUrl.searchParams.set("scope","user:read");
           authUrl.searchParams.set("response_type","code");
           authUrl.searchParams.set("code_challenge", challenge);
           authUrl.searchParams.set("code_challenge_method","S256");
           authUrl.searchParams.set("state", state.random);
-        } else {
-          return TEXT("Unsupported provider",400);
-        }
+        } else { return TEXT("Unsupported provider",400); }
 
         const cookie=`oauth_state=${encodeURIComponent(JSON.stringify(state))}; HttpOnly; Path=/; Max-Age=600; Secure; SameSite=Lax`;
         return new Response(null,{ status:302, headers:{ Location:authUrl.toString(), "Set-Cookie":cookie }});
@@ -324,8 +323,8 @@ async function handleRequest(context){
         try{ token=await exchangeCodeForToken(provider, code, stored.codeVerifier, env); }
         catch(e){ return TEXT(`HATA ADIM 4: Token alınamadı\n\n${e.message}`,500); }
 
-        // subscription
-        let isSub=false, methodUsed="", exp="";
+        // subscription / ids
+        let isSub=false, methodUsed="", exp="", kickViewerId="", kickUsername="", discordUserId="";
         try{
           const slug=stored.streamer;
           const recJSON=await STREAMERS.get(slug);
@@ -333,11 +332,17 @@ async function handleRequest(context){
           const info=JSON.parse(recJSON);
 
           if(provider==="discord"){
-            isSub = await checkDiscordSubscription(token.access_token, info);
-            methodUsed="discord-role";
-          }else if(provider==="kick"){
+            // Discord user id'yi kesin alalım
+            const me = await getDiscordMe(token.access_token);
+            discordUserId = String(me.id || "");
+            // rol kontrolünü de dilersek:
+            const roleCheck = await checkDiscordSubscription(token.access_token, info);
+            isSub = !!roleCheck.hasRole;
+          } else if(provider==="kick"){
             const r=await checkKickSubscriptionViewer(token.access_token, slug);
             isSub=!!r.subscribed; methodUsed=r.method||""; exp=r.expires_at||"";
+            kickViewerId = r.viewerId ? String(r.viewerId) : "";
+            kickUsername = r.viewerUsername || "";
           }
         }catch(e){
           return TEXT(`HATA ADIM 5: Abonelik kontrolü başarısız.\n\nDetay:\n${e.message}`,500);
@@ -347,40 +352,12 @@ async function handleRequest(context){
         redir.searchParams.set("subscribed", String(isSub));
         redir.searchParams.set("provider", provider);
         if(methodUsed) redir.searchParams.set("method", methodUsed);
-        if(exp) redir.searchParams.set("expires_at", exp);
+        if(exp)        redir.searchParams.set("expires_at", exp);
+        if(kickViewerId) redir.searchParams.set("kick_viewer_id", kickViewerId);
+        if(kickUsername) redir.searchParams.set("kick_username", kickUsername);
+        if(discordUserId) redir.searchParams.set("discord_user_id", discordUserId);
 
         return new Response(null,{ status:302, headers:{ Location:redir.toString(), "Set-Cookie":"oauth_state=; HttpOnly; Path=/; Max-Age=0" }});
-      }
-
-      /* optional debug: /api/test/kick?streamer=slug&token=ACCESS */
-      if(seg[1]==="test" && seg[2]==="kick" && method==="GET"){
-        const streamer=url.searchParams.get("streamer");
-        const token=url.searchParams.get("token");
-        if(!streamer) return JSONH({ error:"streamer query required" },400);
-        if(!token)    return JSONH({ error:"token query required (Bearer access_token)" },400);
-        try{
-          const out={};
-          const subs=await getUserSubscriptions(token, streamer); out.user_subscriptions=subs;
-          if(subs.ok && subs.data) out.user_subscriptions_expires_at = findExpiresAtDeep(subs.data);
-
-          const me=await getChannelMe(streamer, token); out.me=me;
-          if(me.ok && me.data) out.me_expires_at=findExpiresAtDeep(me.data);
-
-          const viewer=await getKickViewer(token); out.viewer=viewer;
-          const ch=await getChannelBySlug(streamer); out.channel=ch;
-
-          const id1=await getIdentityByUserId(ch.channelId, viewer.id, streamer); out.identity_userId=id1;
-          if(id1.ok && id1.data) out.identity_userId_expires_at=findExpiresAtDeep(id1.data);
-
-          const id2=await getIdentityByUsername(streamer, viewer.username, streamer); out.identity_username=id2;
-          if(id2.ok && id2.data) out.identity_username_expires_at=findExpiresAtDeep(id2.data);
-
-          const s1=await getSubscriberByUsername(streamer, viewer.username, token); out.subscribers_username=s1;
-          if(s1.ok && s1.data) out.subscribers_username_expires_at=findExpiresAtDeep(s1.data);
-
-          const verdict = out.user_subscriptions_expires_at || out.me_expires_at || out.identity_userId_expires_at || out.identity_username_expires_at || out.subscribers_username_expires_at ? "SUBSCRIBED" : "NOT_SUBSCRIBED";
-          return JSONH({ ok:true, verdict, out });
-        }catch(e){ return JSONH({ ok:false, error:e.message },500); }
       }
 
       return TEXT("Not Found",404);
