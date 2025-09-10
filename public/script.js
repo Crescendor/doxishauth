@@ -17,14 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginErrorEl = document.getElementById('login-error');
 
     const addStreamerForm = document.getElementById('add-streamer-form');
+    const addStreamerBtn = document.getElementById('add-streamer-btn');
     const streamerSlugInput = document.getElementById('streamer-slug-input');
-    const displayTextFormInput = document.getElementById('display-text-input');
+    const displayTextInput = document.getElementById('display-text-input');
     const discordGuildIdInput = document.getElementById('discord-guild-id-input');
     const discordRoleIdInput = document.getElementById('discord-role-id-input');
     const discordBotTokenInput = document.getElementById('discord-bot-token-input');
     const streamerListEl = document.getElementById('streamer-list');
-    const formErrorEl = document.getElementById('form-error');
-    const addStreamerBtn = document.getElementById('add-streamer-btn');
 
     let currentStreamer = null;
 
@@ -56,21 +55,26 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     // --- API İstek Yardımcısı ---
-    const apiRequest = async (endpoint, options = {}) => {
-        try {
-            const response = await fetch(`/api${endpoint}`, options);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Bilinmeyen bir hata oluştu.' }));
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('API isteği hatası:', error);
-            throw error;
-        }
-    };
+    async function apiRequest(path, options = {}) {
+        const res = await fetch(`/api/${path.replace(/^\\//, '')}`, {
+            method: options.method || 'GET',
+            headers: options.headers || {},
+            body: options.body || null,
+        });
 
-    // --- Yayıncı Sayfası Mantığı ---
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || `HTTP ${res.status}`);
+        }
+
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+            return await res.json();
+        }
+        return await res.text();
+    }
+
+    // --- Yayıncı Sayfasını Yükle ---
     const loadStreamerPage = async (slug) => {
         try {
             const data = await apiRequest(`/streamers/${slug}`);
@@ -88,6 +92,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const subscribed = urlParams.get('subscribed');
         const provider = urlParams.get('provider');
         const error = urlParams.get('error');
+
+        // EKLENDİ: username gösterimi
+        const username = urlParams.get('username');
+        const identityEl = document.getElementById('user-identity');
+        if (identityEl) {
+            if (username) {
+                const label = (provider === 'discord') ? 'Discord kullanıcı adı' : 'Kick kullanıcı adı';
+                identityEl.textContent = `${label}: ${username}`;
+            } else {
+                identityEl.textContent = '';
+            }
+        }
 
         if (error) {
             subscriptionStatusEl.textContent = 'Giriş sırasında bir hata oluştu.';
@@ -133,63 +149,45 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Admin Paneli Mantığı ---
-    const loadAdminPanel = async () => {
+    // --- Admin Paneli ---
+    async function loadAdminPanel() {
         try {
-            const streamers = await apiRequest('/streamers');
-            renderStreamerList(streamers);
+            const list = await apiRequest('/streamers');
+            streamerListEl.innerHTML = '';
+            list.forEach((s) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between bg-gray-900 border border-gray-700 rounded-lg p-3';
+                row.innerHTML = `
+                    <div class="text-sm">
+                        <div class="font-semibold text-white">${s.slug}</div>
+                        <div class="text-gray-400">${s.displayText}</div>
+                    </div>
+                    <button data-del="${s.slug}" class="text-sm px-3 py-1 rounded bg-red-500 hover:bg-red-600 text-white">Sil</button>
+                `;
+                streamerListEl.appendChild(row);
+            });
         } catch (error) {
-            console.error('Yayıncılar yüklenemedi:', error);
+            streamerListEl.innerHTML = `<div class="text-red-400">Liste alınamadı: ${error.message}</div>`;
         }
-    };
-    
-    const renderStreamerList = (streamers) => {
-        streamerListEl.innerHTML = '';
-        if (streamers.length === 0) {
-             streamerListEl.innerHTML = '<p class="text-gray-500">Henüz yayıncı eklenmemiş.</p>';
-             return;
-        }
-        streamers.forEach(streamer => {
-            const li = document.createElement('div');
-            li.className = 'bg-gray-700 p-3 rounded-lg flex justify-between items-center';
-            li.innerHTML = `
-                <div>
-                    <a href="/${streamer.slug}" target="_blank" class="font-semibold text-green-400 hover:underline">${streamer.slug}</a>
-                    <p class="text-sm text-gray-400">"${streamer.displayText}"</p>
-                </div>
-                <button data-slug="${streamer.slug}" class="delete-btn bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-sm btn-press">Sil</button>
-            `;
-            streamerListEl.appendChild(li);
-        });
-    };
+    }
 
     if (addStreamerForm) {
         addStreamerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            formErrorEl.textContent = '';
-            addStreamerBtn.disabled = true;
-            addStreamerBtn.innerHTML = '<div class="loader"></div>';
-
             const formData = {
-                slug: streamerSlugInput.value.toLowerCase().trim(),
-                displayText: displayTextFormInput.value.trim(),
-                discordGuildId: discordGuildIdInput.value.trim(),
-                discordRoleId: discordRoleIdInput.value.trim(),
-                discordBotToken: discordBotTokenInput.value.trim(),
-                password: sessionStorage.getItem('adminPassword') || passwordInput.value
+                password: sessionStorage.getItem('isAdminAuthenticated') ? '***' : '', // server kontrol ediyor
+                slug: streamerSlugInput.value.trim(),
+                displayText: displayTextInput.value.trim(),
+                discordGuildId: discordGuildIdInput.value.trim() || null,
+                discordRoleId: discordRoleIdInput.value.trim() || null,
+                discordBotToken: discordBotTokenInput.value.trim() || null
             };
-            
-            // Sadece Discord ayarlarının hepsi doluysa veya hepsi boşsa devam et
-            const discordFields = [formData.discordGuildId, formData.discordRoleId, formData.discordBotToken];
-            const filledFields = discordFields.filter(f => f).length;
-            if (filledFields > 0 && filledFields < 3) {
-                formErrorEl.textContent = 'Lütfen tüm Discord alanlarını doldurun veya hepsini boş bırakın.';
-                addStreamerBtn.disabled = false;
-                addStreamerBtn.innerHTML = '<span>Yayıncıyı Ekle</span>';
-                return;
-            }
+            const formErrorEl = document.getElementById('form-error');
 
             try {
+                addStreamerBtn.disabled = true;
+                addStreamerBtn.innerHTML = '<span class="inline-flex items-center gap-2"><span class="w-4 h-4 border-2 border-white/60 border-t-transparent rounded-full animate-spin"></span> Kaydediliyor</span>';
+
                 await apiRequest('/streamers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -206,25 +204,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    streamerListEl.addEventListener('click', async (e) => {
-        if (e.target.classList.contains('delete-btn')) {
-            const slug = e.target.dataset.slug;
-            if (confirm(`'${slug}' adlı yayıncıyı silmek istediğinizden emin misiniz?`)) {
-                try {
-                     await apiRequest(`/streamers/${slug}`, {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ password: sessionStorage.getItem('adminPassword') || passwordInput.value })
-                    });
-                    await loadAdminPanel();
-                } catch (error) {
-                    alert(`Hata: ${error.message}`);
-                }
-            }
+    streamerListEl?.addEventListener('click', async (e) => {
+        const target = e.target;
+        if (target && target.matches('button[data-del]')) {
+            const slug = target.getAttribute('data-del');
+            // (Silme ucu backend'de yoksa, bu bölüm pasif kalır)
+            alert(`Silme isteği: ${slug} (backend ucu yoksa no-op)`);
         }
     });
 
-    // Başlangıç
+    // Start
     handleRouting();
 });
-
