@@ -1,8 +1,8 @@
 /**
- * Gelişmiş Frontend Kodu v10.2
+ * Gelişmiş Frontend Kodu v11.0 - Yeni Arayüz
  * Bu kod, ChatGPT tarafından sağlanan v10.1 backend ve yeni görsel tasarımla tam uyumlu çalışır.
  * - Kalıcı veri saklama (localStorage) ile çoklu platform durum yönetimi.
- * - Yeni görsel arayüzü (UI) yönetir.
+ * - Yeni "retrowave" görsel arayüzünü (UI) yönetir.
  * - Oturum yönetimi (sessionStorage) ile admin panelini güvence altına alır.
  */
 document.addEventListener("DOMContentLoaded", () => {
@@ -12,44 +12,41 @@ document.addEventListener("DOMContentLoaded", () => {
         streamer: document.getElementById("streamer-page"),
         adminLogin: document.getElementById("admin-login-page"),
         adminPanel: document.getElementById("admin-panel-page"),
+        adminContainer: document.getElementById("admin-page-container"),
     };
 
-    // Belirli bir sayfayı veya layout'u aktif hale getirir
     const showPage = (pageName) => {
-        // Önce tüm ana container'ları gizle
         pages.home.classList.remove("active");
         pages.appLayout.classList.remove("active");
 
-        if (pageName === "streamer" || pageName === "adminLogin" || pageName === "adminPanel") {
-             pages.appLayout.classList.add("active"); // Logo + Kart layoutunu göster
-             
-             // İlgili kartı layout içinde göster
-             document.getElementById('streamer-page').style.display = 'none';
-             document.getElementById('admin-page-container').style.display = 'none';
-             
-             if (pageName === "streamer") {
-                document.getElementById('streamer-page').style.display = 'block';
-             } else {
-                document.getElementById('admin-page-container').style.display = 'block';
-                document.getElementById('admin-login-page').style.display = pageName === 'adminLogin' ? 'flex' : 'none';
-                document.getElementById('admin-panel-page').style.display = pageName === 'adminPanel' ? 'flex' : 'none';
-             }
+        if (["streamer", "adminLogin", "adminPanel"].includes(pageName)) {
+            pages.appLayout.classList.add("active");
+            pages.streamer.style.display = pageName === "streamer" ? "flex" : "none";
+            pages.adminContainer.style.display = pageName.startsWith("admin") ? "block" : "none";
+            
+            if (pageName.startsWith("admin")) {
+                pages.adminLogin.classList.toggle("active", pageName === "adminLogin");
+                pages.adminPanel.classList.toggle("active", pageName === "adminPanel");
+            }
         } else {
-            // Sadece ana sayfa gibi tekil sayfaları göster
-            pages[pageName]?.classList.add("active");
+            pages.home.classList.add("active");
         }
     };
     
-    // Ekranın altında bilgilendirme mesajı gösterir
     const showToast = (message, isError = false) => {
         const toast = document.getElementById("toast");
         toast.textContent = message;
-        toast.style.backgroundColor = isError ? '#c53030' : '#2d3748';
-        toast.classList.add("show");
-        setTimeout(() => toast.classList.remove("show"), 3000);
+        toast.className = `fixed bottom-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 translate-y-3 transition-all duration-300 ${isError ? 'bg-red-600 border-red-500' : 'bg-gray-800 border-gray-700'}`;
+        
+        // Trigger reflow to restart animation
+        toast.offsetHeight;
+
+        toast.classList.add("show", "opacity-100", "translate-y-0");
+        setTimeout(() => {
+            toast.classList.remove("opacity-100", "translate-y-0");
+        }, 3000);
     };
 
-    // URL'e göre hangi sayfanın gösterileceğini belirler
     const handleRouting = async () => {
         const path = window.location.pathname.replace(/^\/+/, "");
         if (path.toLowerCase() === "admin") {
@@ -68,18 +65,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 const streamer = await response.json();
                 
-                // Arayüzü yayıncı bilgileriyle doldur
                 document.getElementById("streamer-name").textContent = streamer.slug;
                 document.getElementById("display-text").textContent = streamer.displayText;
                 
-                // Butonlara tıklama olaylarını ata
                 document.getElementById("kick-login").onclick = () => window.location.href = `/api/auth/redirect/kick?streamer=${streamer.slug}`;
                 const discordButton = document.getElementById("discord-login");
                 if (streamer.discordGuildId && streamer.discordRoleId) {
-                    discordButton.style.display = "flex";
+                    discordButton.classList.remove("hidden");
                     discordButton.onclick = () => window.location.href = `/api/auth/redirect/discord?streamer=${streamer.slug}`;
                 } else {
-                    discordButton.style.display = "none";
+                    discordButton.classList.add("hidden");
                 }
                 
                 showPage("streamer");
@@ -94,32 +89,32 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
     
-    // localStorage'den veri okur
     const getPersistentData = (streamerSlug) => {
         const key = `doxishauth_${streamerSlug}`;
-        const data = localStorage.getItem(key);
-        return data ? JSON.parse(data) : { kick: null, discord: null };
+        try {
+            const data = localStorage.getItem(key);
+            return data ? JSON.parse(data) : { kick: null, discord: null };
+        } catch (e) {
+            return { kick: null, discord: null };
+        }
     };
 
-    // localStorage'e veri yazar
     const setPersistentData = (streamerSlug, data) => {
         const key = `doxishauth_${streamerSlug}`;
         localStorage.setItem(key, JSON.stringify(data));
     };
     
-    // Giriş sonrası URL'den gelen sonucu işler ve arayüzü günceller
     const handleCallbackAndUI = (streamerSlug) => {
         const params = new URLSearchParams(window.location.search);
         let data = getPersistentData(streamerSlug);
 
-        // Eğer URL'de yeni bir sonuç varsa, veriyi güncelle
         if (params.has("provider")) {
             const provider = params.get("provider");
             const isSubscribed = params.get("subscribed") === "true";
             const error = params.get("error");
             
             if (error) {
-                showToast(`${provider.toUpperCase()} girişi başarısız: ${error}`, true);
+                showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} girişi başarısız: ${error}`, true);
             } else {
                  data[provider] = {
                     linked: true,
@@ -129,37 +124,52 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             setPersistentData(streamerSlug, data);
             
-            // Temiz bir görünüm için URL'i temizle
             window.history.replaceState({}, document.title, `/${streamerSlug}`);
         }
         
-        // Arayüzü en güncel veriye göre güncelle
         updateUI(data);
     };
 
-    // Arayüzü (UI) en güncel verilere göre günceller
+    const createBadge = (text, isGreen) => {
+        const badge = document.createElement('span');
+        badge.className = `status-badge ${isGreen ? 'status-badge-green' : 'status-badge-red'}`;
+        badge.textContent = text;
+        return badge;
+    };
+
     const updateUI = (data) => {
-        // Discord UI
-        const discordData = data.discord;
-        document.getElementById("discord-status-not-linked").classList.toggle("hidden", !!discordData);
-        document.getElementById("discord-status-linked").classList.toggle("hidden", !discordData || discordData.subscribed === null);
-        document.getElementById("discord-status-subscribed").classList.toggle("hidden", !discordData || !discordData.subscribed);
-        document.getElementById("discord-status-not-subscribed").classList.toggle("hidden", !discordData || discordData.subscribed);
+        const discordContainer = document.getElementById("discord-status-container");
+        const discordBadges = document.getElementById("discord-status-badges");
+        
+        discordBadges.innerHTML = '';
+        if (data.discord) {
+            discordContainer.classList.remove('hidden');
+            discordBadges.appendChild(createBadge('Discord : Bağlandı', true));
+            discordBadges.appendChild(createBadge(data.discord.subscribed ? 'Rol : Mevcut' : 'Rol : Mevcut Değil', data.discord.subscribed));
+        } else {
+            discordContainer.classList.remove('hidden');
+            discordBadges.appendChild(createBadge('Discord : Bağlı Değil', false));
+        }
 
-        // Kick UI
-        const kickData = data.kick;
-        document.getElementById("kick-status-not-linked").classList.toggle("hidden", !!kickData);
-        document.getElementById("kick-status-linked").classList.toggle("hidden", !kickData || kickData.subscribed === null);
-        document.getElementById("kick-status-subscribed").classList.toggle("hidden", !kickData || !kickData.subscribed);
-        document.getElementById("kick-status-not-subscribed").classList.toggle("hidden", !kickData || kickData.subscribed);
+        const kickContainer = document.getElementById("kick-status-container");
+        const kickBadges = document.getElementById("kick-status-badges");
 
-        // Eğer her iki kontrol de yapıldıysa sonuç mesajını göster
-        document.getElementById("result-message").classList.toggle("hidden", !(kickData && discordData));
+        kickBadges.innerHTML = '';
+        if (data.kick) {
+            kickContainer.classList.remove('hidden');
+            kickBadges.appendChild(createBadge('Kick : Bağlandı', true));
+            kickBadges.appendChild(createBadge(data.kick.subscribed ? 'Abonelik : Kanalda Abone' : 'Abonelik : Kanalda Abone Değil', data.kick.subscribed));
+        } else {
+            kickContainer.classList.remove('hidden');
+            kickBadges.appendChild(createBadge('Kick : Bağlı Değil', false));
+        }
+
+        const bothChecked = data.kick && (data.discord || !document.getElementById('discord-login').offsetParent);
+        document.getElementById("result-message").classList.toggle("hidden", !bothChecked);
     };
 
     /* -------------------- ADMIN PANEL LOGIC -------------------- */
     
-    // Admin Giriş Formu
     document.getElementById("admin-login-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const password = document.getElementById("admin-password-input").value;
@@ -172,7 +182,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (response.ok) {
                 sessionStorage.setItem("isAdminAuthenticated", "true");
                 sessionStorage.setItem("adminPassword", password);
-                window.location.pathname = "/admin"; // Sayfayı yenileyerek paneli yükle
+                window.location.pathname = "/admin";
             } else {
                 showToast("Hatalı şifre!", true);
             }
@@ -181,7 +191,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
     
-    // Çıkış Butonu
     const logoutBtn = document.getElementById("logout-btn");
     if(logoutBtn) {
         logoutBtn.addEventListener('click', () => {
@@ -190,7 +199,6 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Admin Panelini Yükle
     const loadAdminPanel = async () => {
         const listContainer = document.getElementById("streamer-list-container");
         listContainer.innerHTML = '<div class="loader"></div>';
@@ -208,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             streamers.forEach(streamer => {
                 const item = document.createElement("div");
-                item.className = "bg-gray-800 p-3 rounded-lg flex justify-between items-center";
+                item.className = "bg-gray-800/50 p-3 rounded-lg flex justify-between items-center";
                 item.innerHTML = `
                     <div>
                         <a href="/${streamer.slug}" target="_blank" class="text-lg font-semibold text-green-400 hover:underline">${streamer.slug}</a>
@@ -227,7 +235,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // Yayıncı Sil
     const handleDeleteStreamer = async (e) => {
         const slug = e.target.dataset.slug;
         if (!confirm(`'${slug}' adlı yayıncıyı silmek istediğinizden emin misiniz?`)) return;
@@ -250,14 +257,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
     
-    // Yayıncı Ekle
     document.getElementById("add-streamer-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
         const data = Object.fromEntries(formData.entries());
         data.password = sessionStorage.getItem("adminPassword");
         
-        // İsteğe bağlı alanları boşsa gönderme
         for(const key in data) {
             if(data[key] === '') {
                 delete data[key];
@@ -283,7 +288,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Sayfa yüklendiğinde yönlendirmeyi başlat
     handleRouting();
     window.addEventListener("popstate", handleRouting);
 });
