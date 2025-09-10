@@ -1,55 +1,61 @@
 /**
- * Gelişmiş Frontend Kodu v11.0 - Yeni Arayüz
- * Bu kod, ChatGPT tarafından sağlanan v10.1 backend ve yeni görsel tasarımla tam uyumlu çalışır.
+ * Gelişmiş Frontend Kodu v12.0 - Nihai Tasarım
+ * Bu kod, ChatGPT tarafından sağlanan v10.1 backend ve yeni "retrowave" tasarımla tam uyumlu çalışır.
  * - Kalıcı veri saklama (localStorage) ile çoklu platform durum yönetimi.
- * - Yeni "retrowave" görsel arayüzünü (UI) yönetir.
- * - Oturum yönetimi (sessionStorage) ile admin panelini güvence altına alır.
+ * - Admin panelinden gelen özel başlık, alt başlık ve arkaplanı uygular.
+ * - Discord ayarları admin panelinden kaldırıldı, backend'den gelen veriye göre buton gösterilir.
  */
 document.addEventListener("DOMContentLoaded", () => {
     const pages = {
         home: document.getElementById("home-page"),
-        appLayout: document.getElementById("app-layout"),
-        streamer: document.getElementById("streamer-page"),
+        content: document.getElementById("content-page"),
+        streamer: document.getElementById("streamer-card"),
+        admin: document.getElementById("admin-card"),
         adminLogin: document.getElementById("admin-login-page"),
         adminPanel: document.getElementById("admin-panel-page"),
-        adminContainer: document.getElementById("admin-page-container"),
     };
+
+    const defaultBg = "url('https://i.ibb.co/7Nbkyyss/Untitled-design.png')";
 
     const showPage = (pageName) => {
-        pages.home.classList.remove("active");
-        pages.appLayout.classList.remove("active");
+        // Hide all pages first
+        Object.values(pages).forEach(p => {
+            p.classList.remove('active');
+            p.style.display = 'none';
+        });
 
-        if (["streamer", "adminLogin", "adminPanel"].includes(pageName)) {
-            pages.appLayout.classList.add("active");
-            pages.streamer.style.display = pageName === "streamer" ? "flex" : "none";
-            pages.adminContainer.style.display = pageName.startsWith("admin") ? "block" : "none";
-            
-            if (pageName.startsWith("admin")) {
-                pages.adminLogin.classList.toggle("active", pageName === "adminLogin");
-                pages.adminPanel.classList.toggle("active", pageName === "adminPanel");
-            }
-        } else {
-            pages.home.classList.add("active");
+        if (pageName === "home") {
+            pages.home.style.display = 'flex';
+            pages.home.classList.add('active');
+        } else if (pageName.startsWith('admin')) {
+            pages.content.style.display = 'flex';
+            pages.content.classList.add('active');
+            pages.admin.style.display = 'block';
+            pages.adminLogin.style.display = pageName === 'adminLogin' ? 'flex' : 'none';
+            pages.adminPanel.style.display = pageName === 'adminPanel' ? 'flex' : 'none';
+        } else if (pageName === 'streamer') {
+            pages.content.style.display = 'flex';
+            pages.content.classList.add('active');
+            pages.streamer.style.display = 'block';
         }
     };
-    
+
     const showToast = (message, isError = false) => {
         const toast = document.getElementById("toast");
         toast.textContent = message;
         toast.className = `fixed bottom-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 translate-y-3 transition-all duration-300 ${isError ? 'bg-red-600 border-red-500' : 'bg-gray-800 border-gray-700'}`;
         
         // Trigger reflow to restart animation
-        toast.offsetHeight;
+        void toast.offsetWidth;
 
-        toast.classList.add("show", "opacity-100", "translate-y-0");
-        setTimeout(() => {
-            toast.classList.remove("opacity-100", "translate-y-0");
-        }, 3000);
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 3000);
     };
 
     const handleRouting = async () => {
         const path = window.location.pathname.replace(/^\/+/, "");
         if (path.toLowerCase() === "admin") {
+            document.body.style.backgroundImage = defaultBg;
             if (sessionStorage.getItem("isAdminAuthenticated")) {
                 showPage("adminPanel");
                 await loadAdminPanel();
@@ -60,31 +66,35 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
                 const response = await fetch(`/api/streamers/${path}`);
                 if (!response.ok) {
-                    showPage("home");
+                    window.location.pathname = '/';
                     return;
                 }
                 const streamer = await response.json();
                 
-                document.getElementById("streamer-name").textContent = streamer.slug;
-                document.getElementById("display-text").textContent = streamer.displayText;
+                document.getElementById("streamer-title").textContent = streamer.title;
+                document.getElementById("streamer-subtitle").textContent = streamer.subtitle;
+                document.body.style.backgroundImage = streamer.customBackgroundUrl ? `url('${streamer.customBackgroundUrl}')` : defaultBg;
                 
                 document.getElementById("kick-login").onclick = () => window.location.href = `/api/auth/redirect/kick?streamer=${streamer.slug}`;
+                
                 const discordButton = document.getElementById("discord-login");
+                // Backend'den Discord bilgisi geliyorsa butonu göster
                 if (streamer.discordGuildId && streamer.discordRoleId) {
-                    discordButton.classList.remove("hidden");
+                    discordButton.style.display = "flex";
                     discordButton.onclick = () => window.location.href = `/api/auth/redirect/discord?streamer=${streamer.slug}`;
                 } else {
-                    discordButton.classList.add("hidden");
+                    discordButton.style.display = "none";
                 }
                 
                 showPage("streamer");
-                handleCallbackAndUI(streamer.slug);
+                handleCallbackAndUI(streamer.slug, !!streamer.discordGuildId);
 
             } catch (error) {
                 console.error("Yayıncı verisi alınırken hata:", error);
-                showPage("home");
+                window.location.pathname = '/';
             }
         } else {
+            document.body.style.backgroundImage = defaultBg;
             showPage("home");
         }
     };
@@ -94,9 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const data = localStorage.getItem(key);
             return data ? JSON.parse(data) : { kick: null, discord: null };
-        } catch (e) {
-            return { kick: null, discord: null };
-        }
+        } catch (e) { return { kick: null, discord: null }; }
     };
 
     const setPersistentData = (streamerSlug, data) => {
@@ -104,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.setItem(key, JSON.stringify(data));
     };
     
-    const handleCallbackAndUI = (streamerSlug) => {
+    const handleCallbackAndUI = (streamerSlug, isDiscordEnabled) => {
         const params = new URLSearchParams(window.location.search);
         let data = getPersistentData(streamerSlug);
 
@@ -114,7 +122,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const error = params.get("error");
             
             if (error) {
-                showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} girişi başarısız: ${error}`, true);
+                showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} girişi başarısız.`, true);
+                 // Hatalı girişte veriyi null yap
+                 data[provider] = null;
             } else {
                  data[provider] = {
                     linked: true,
@@ -127,7 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
             window.history.replaceState({}, document.title, `/${streamerSlug}`);
         }
         
-        updateUI(data);
+        updateUI(data, isDiscordEnabled);
     };
 
     const createBadge = (text, isGreen) => {
@@ -137,34 +147,31 @@ document.addEventListener("DOMContentLoaded", () => {
         return badge;
     };
 
-    const updateUI = (data) => {
+    const updateUI = (data, isDiscordEnabled) => {
         const discordContainer = document.getElementById("discord-status-container");
-        const discordBadges = document.getElementById("discord-status-badges");
-        
-        discordBadges.innerHTML = '';
-        if (data.discord) {
-            discordContainer.classList.remove('hidden');
-            discordBadges.appendChild(createBadge('Discord : Bağlandı', true));
-            discordBadges.appendChild(createBadge(data.discord.subscribed ? 'Rol : Mevcut' : 'Rol : Mevcut Değil', data.discord.subscribed));
+        if (isDiscordEnabled) {
+            discordContainer.innerHTML = '';
+            if (data.discord) {
+                discordContainer.appendChild(createBadge('Discord : Bağlandı', true));
+                discordContainer.appendChild(createBadge(data.discord.subscribed ? 'Rol : Mevcut' : 'Rol : Mevcut Değil', data.discord.subscribed));
+            } else {
+                discordContainer.appendChild(createBadge('Discord : Bağlı Değil', false));
+            }
         } else {
-            discordContainer.classList.remove('hidden');
-            discordBadges.appendChild(createBadge('Discord : Bağlı Değil', false));
+            discordContainer.innerHTML = '';
         }
+
 
         const kickContainer = document.getElementById("kick-status-container");
-        const kickBadges = document.getElementById("kick-status-badges");
-
-        kickBadges.innerHTML = '';
+        kickContainer.innerHTML = '';
         if (data.kick) {
-            kickContainer.classList.remove('hidden');
-            kickBadges.appendChild(createBadge('Kick : Bağlandı', true));
-            kickBadges.appendChild(createBadge(data.kick.subscribed ? 'Abonelik : Kanalda Abone' : 'Abonelik : Kanalda Abone Değil', data.kick.subscribed));
+            kickContainer.appendChild(createBadge('Kick : Bağlandı', true));
+            kickContainer.appendChild(createBadge(data.kick.subscribed ? 'Abonelik : Kanalda Abone' : 'Abonelik : Kanalda Abone Değil', data.kick.subscribed));
         } else {
-            kickContainer.classList.remove('hidden');
-            kickBadges.appendChild(createBadge('Kick : Bağlı Değil', false));
+            kickContainer.appendChild(createBadge('Kick : Bağlı Değil', false));
         }
 
-        const bothChecked = data.kick && (data.discord || !document.getElementById('discord-login').offsetParent);
+        const bothChecked = data.kick && (!isDiscordEnabled || data.discord);
         document.getElementById("result-message").classList.toggle("hidden", !bothChecked);
     };
 
@@ -183,21 +190,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 sessionStorage.setItem("isAdminAuthenticated", "true");
                 sessionStorage.setItem("adminPassword", password);
                 window.location.pathname = "/admin";
-            } else {
-                showToast("Hatalı şifre!", true);
-            }
-        } catch (error) {
-            showToast("Giriş sırasında bir hata oluştu.", true);
-        }
+            } else { showToast("Hatalı şifre!", true); }
+        } catch (error) { showToast("Giriş sırasında bir hata oluştu.", true); }
     });
     
-    const logoutBtn = document.getElementById("logout-btn");
-    if(logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            sessionStorage.clear();
-            window.location.pathname = "/";
-        });
-    }
+    document.getElementById("logout-btn")?.addEventListener('click', () => {
+        sessionStorage.clear();
+        window.location.pathname = "/";
+    });
 
     const loadAdminPanel = async () => {
         const listContainer = document.getElementById("streamer-list-container");
@@ -218,11 +218,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 const item = document.createElement("div");
                 item.className = "bg-gray-800/50 p-3 rounded-lg flex justify-between items-center";
                 item.innerHTML = `
-                    <div>
-                        <a href="/${streamer.slug}" target="_blank" class="text-lg font-semibold text-green-400 hover:underline">${streamer.slug}</a>
-                        <p class="text-sm text-gray-400">${streamer.displayText}</p>
+                    <div class="truncate mr-4">
+                        <a href="/${streamer.slug}" target="_blank" class="text-lg font-semibold text-green-400 hover:underline">${streamer.title}</a>
+                        <p class="text-sm text-gray-400 truncate">/${streamer.slug}</p>
                     </div>
-                    <button data-slug="${streamer.slug}" class="delete-btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg btn-press text-sm">Sil</button>
+                    <button data-slug="${streamer.slug}" class="delete-btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg btn-press text-sm flex-shrink-0">Sil</button>
                 `;
                 listContainer.appendChild(item);
             });
@@ -237,6 +237,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const handleDeleteStreamer = async (e) => {
         const slug = e.target.dataset.slug;
+        
+        // Use a custom modal for confirmation later if needed
         if (!confirm(`'${slug}' adlı yayıncıyı silmek istediğinizden emin misiniz?`)) return;
         
         const password = sessionStorage.getItem("adminPassword");
@@ -249,12 +251,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (response.ok) {
                 showToast("Yayıncı başarıyla silindi.");
                 await loadAdminPanel();
-            } else {
-                throw new Error("Silme işlemi başarısız oldu.");
-            }
-        } catch (error) {
-            showToast("Yayıncı silinirken bir hata oluştu.", true);
-        }
+            } else { throw new Error("Silme işlemi başarısız oldu."); }
+        } catch (error) { showToast("Yayıncı silinirken bir hata oluştu.", true); }
     };
     
     document.getElementById("add-streamer-form").addEventListener("submit", async (e) => {
@@ -263,11 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = Object.fromEntries(formData.entries());
         data.password = sessionStorage.getItem("adminPassword");
         
-        for(const key in data) {
-            if(data[key] === '') {
-                delete data[key];
-            }
-        }
+        for(const key in data) { if(data[key] === '') { delete data[key]; } }
         
         try {
             const response = await fetch("/api/streamers", {
@@ -283,12 +277,9 @@ document.addEventListener("DOMContentLoaded", () => {
                  const error = await response.json();
                  throw new Error(error.error || "Ekleme işlemi başarısız oldu.");
             }
-        } catch (error) {
-            showToast(`Hata: ${error.message}`, true);
-        }
+        } catch (error) { showToast(`Hata: ${error.message}`, true); }
     });
 
     handleRouting();
-    window.addEventListener("popstate", handleRouting);
 });
 
