@@ -1,20 +1,24 @@
 /**
- * Kick Abonelik Doğrulama – v10.7
+ * Kick Abonelik Doğrulama + Kick Admin Login – v10.8
  * Cloudflare Pages Functions (KV: STREAMERS)
  *
- * ✅ Admin login fix:
- *   - password ve ENV normalize (trim + NFKC)
- *   - güvenli karşılaştırma (süre bazlı kısa devre yok)
- *   - Aynı kontrol /api/login ve /api/streamers POST/PUT/DELETE için ortak
- *   - /api/admin/diag teşhis ucu: { hasAdminPassword, adminLength } (değer göstermez)
+ * ✅ Yeni: Kick ile Admin Giriş
+ *  - GET /api/admin/redirect/kick      -> Kick OAuth başlat
+ *  - GET /api/admin/callback/kick      -> Kullanıcıyı doğrula; doxish (veya ENV) ise admin oturumu aç
+ *  - GET /api/admin/check              -> Çerezden admin oturum var mı?
+ *  - POST /api/admin/logout            -> Admin oturumu kapat
+ *
+ * 🔐 Admin kimliği:
+ *  - Varsayılan tek yetkili: "doxish"
+ *  - ENV ile değiştirmek için: ADMIN_KICK_USERNAMES (virgüllü liste; örn: "doxish,anotheradmin")
  *
  * 🟢 Abonelik kuralı (değişmedi):
- *   - JSON içinde herhangi derinlikte "expires_at" string → ABONE
- *   - Veya /api/v2/channels/{slug}/users/{username} badges[*].type === "subscriber" → ABONE
- *   - Fallback: /user/subscriptions, /channels/{slug}/me, identity (userId/username), subscribers/{username}
+ *  - JSON içinde herhangi derinlikte "expires_at" string → ABONE
+ *  - VEYA /api/v2/channels/{slug}/users/{username} badges[*].type === "subscriber" → ABONE
+ *  - Ek fallback: /user/subscriptions, /channels/{slug}/me, identity (userId/username), subscribers/{username}
  *
- * ENV: APP_URL, ADMIN_PASSWORD, KICK_CLIENT_ID, KICK_CLIENT_SECRET
- *      (opsiyonel) DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET
+ * ENV: APP_URL, ADMIN_PASSWORD, KICK_CLIENT_ID, KICK_CLIENT_SECRET,
+ *      (opsiyonel) DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, ADMIN_KICK_USERNAMES
  */
 
 export async function onRequest(ctx){ return handleRequest(ctx); }
@@ -26,20 +30,23 @@ const JSONH=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{
 const TEXT =(msg,status=400)=>new Response(msg,{status,headers:{"Content-Type":"text/plain; charset=utf-8"}});
 
 const norm = (s) => (s==null ? "" : String(s)).normalize("NFKC").trim();
-function eqSecure(a,b){
-  // Süre temelli kısa devreyi azaltmak için sabit süreli karşılaştırma
-  if(a.length !== b.length) return false;
-  let r=0; for(let i=0;i<a.length;i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return r===0;
+function eqSecure(a,b){ if(a.length!==b.length) return false; let r=0; for(let i=0;i<a.length;i++) r|=a.charCodeAt(i)^b.charCodeAt(i); return r===0; }
+function isAdminAuthorizedPassword(provided, env){
+  const need=norm(env.ADMIN_PASSWORD); const got=norm(provided);
+  if(need.length===0) return { ok:true, mode:"dev" }; // ENV yoksa serbest (dev)
+  return { ok:eqSecure(got,need), mode:"strict" };
 }
-function isAdminAuthorized(provided, env){
-  const need = norm(env.ADMIN_PASSWORD);
-  const got  = norm(provided);
-  if(need.length===0){ // ENV yoksa dev mod: izin ver
-    return { ok:true, mode:"dev" };
-  }
-  const ok = eqSecure(got, need);
-  return { ok, mode:"strict" };
+
+function parseCookie(req, name){
+  const c=req.headers.get("Cookie")||""; const m=c.match(new RegExp(`${name}=([^;]+)`)); return m?decodeURIComponent(m[1]):null;
+}
+function setCookie(name, value, maxAge){
+  let s=`${name}=${encodeURIComponent(value)}; Path=/; Secure; SameSite=Lax;`;
+  if(maxAge===0) s+=` Max-Age=0;`;
+  else if(typeof maxAge==="number") s+=` Max-Age=${maxAge};`;
+  // admin_auth çerezi HttpOnly; admin_user değil.
+  if(name==="admin_auth") s+=` HttpOnly;`;
+  return s;
 }
 
 async function safeJsonReq(req){
@@ -122,7 +129,6 @@ async function getChannelBySlug(slug){
   if(!channelId) throw new Error(`Kanal ID bulunamadı. Cevap: ${JSON.stringify(j)}`);
   return { channelId, raw:j };
 }
-
 async function getUserSubscriptions(bearer, refererSlug){
   const r=await fetch(`https://kick.com/api/v2/user/subscriptions`,{ headers: siteHeaders(refererSlug, bearer) });
   if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
@@ -161,7 +167,6 @@ function isSubBadge(b){
 function evidence(obj){
   const ex=findExpiresAtDeep(obj);
   if(ex) return { hasSubscription:true, source:"expires_at", expires_at:ex };
-
   const badges = Array.isArray(obj?.badges) ? obj.badges
                 : Array.isArray(obj?.identity?.badges) ? obj.identity.badges
                 : Array.isArray(obj?.user_identity?.badges) ? obj.user_identity.badges
@@ -169,7 +174,6 @@ function evidence(obj){
                 : null;
   if(Array.isArray(badges) && badges.some(isSubBadge))
     return { hasSubscription:true, source:"badge:subscriber", expires_at:null };
-
   return { hasSubscription:false, source:"none", expires_at:null };
 }
 
@@ -241,7 +245,7 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env){
     body=new URLSearchParams({ client_id:env.DISCORD_CLIENT_ID, client_secret:env.DISCORD_CLIENT_SECRET, grant_type:"authorization_code", code, redirect_uri:`${env.APP_URL}/api/auth/callback/discord`});
   } else if(provider==="kick"){
     tokenUrl="https://id.kick.com/oauth/token";
-    body=new URLSearchParams({ client_id:env.KICK_CLIENT_ID, client_secret:env.KICK_CLIENT_SECRET, grant_type:"authorization_code", code, redirect_uri:`${env.APP_URL}/api/auth/callback/kick`, code_verifier:codeVerifier });
+    body=new URLSearchParams({ client_id:env.KICK_CLIENT_ID, client_secret:env.KICK_CLIENT_SECRET, grant_type:"authorization_code", code, redirect_uri:`${env.APP_URL}/api/admin/callback/kick`, code_verifier:codeVerifier });
   } else { throw new Error("Unsupported provider"); }
   const r=await fetch(tokenUrl,{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
   if(!r.ok) throw new Error(await r.text());
@@ -258,38 +262,114 @@ async function handleRequest(context){
     const STREAMERS=env.STREAMERS;
 
     if(seg[0]==="api"){
-      // Health & Diag
+      /* -------- Health -------- */
       if(seg[1]==="health" && method==="GET"){ return JSONH({ ok:true, now:Date.now() }); }
+
+      /* -------- Admin DIAG -------- */
       if(seg[1]==="admin" && seg[2]==="diag" && method==="GET"){
-        const val = norm(env.ADMIN_PASSWORD);
-        return JSONH({ hasAdminPassword: val.length>0, adminLength: val.length });
+        const val = norm(env.ADMIN_PASSWORD); const admins = norm(env.ADMIN_KICK_USERNAMES||"doxish");
+        return JSONH({ hasAdminPassword: val.length>0, adminLength: val.length, adminKickUsers: admins.split(",").map(s=>s.trim()).filter(Boolean) });
       }
 
-      // Admin login
+      /* -------- Admin: Kick OAuth Redirect -------- */
+      if(seg[1]==="admin" && seg[2]==="redirect" && seg[3]==="kick" && method==="GET"){
+        const state={ mode:"admin", random:crypto.randomUUID() };
+        const verifier=generateCodeVerifier(); const challenge=await generateCodeChallenge(verifier);
+        state.codeVerifier=verifier;
+
+        const authUrl=new URL("https://id.kick.com/oauth/authorize");
+        authUrl.searchParams.set("client_id", env.KICK_CLIENT_ID);
+        authUrl.searchParams.set("redirect_uri", `${env.APP_URL}/api/admin/callback/kick`);
+        authUrl.searchParams.set("scope","user:read");
+        authUrl.searchParams.set("response_type","code");
+        authUrl.searchParams.set("code_challenge",challenge);
+        authUrl.searchParams.set("code_challenge_method","S256");
+        authUrl.searchParams.set("state", state.random);
+
+        const cookie=`oauth_state_admin=${encodeURIComponent(JSON.stringify(state))}; HttpOnly; Path=/; Max-Age=600; Secure; SameSite=Lax`;
+        return new Response(null,{ status:302, headers:{ Location:authUrl.toString(), "Set-Cookie":cookie }});
+      }
+
+      /* -------- Admin: Kick OAuth Callback -------- */
+      if(seg[1]==="admin" && seg[2]==="callback" && seg[3]==="kick" && method==="GET"){
+        const code=url.searchParams.get("code");
+        const stateFromUrl=url.searchParams.get("state");
+        if(!code || !stateFromUrl) return TEXT("HATA ADIM A1: code/state eksik",400);
+
+        const cookie=request.headers.get("Cookie");
+        const storedJSON=cookie ? decodeURIComponent(cookie.match(/oauth_state_admin=([^;]+)/)?.[1]||"") : null;
+        if(!storedJSON) return TEXT("HATA ADIM A2: Güvenlik çerezi yok",400);
+
+        const stored=JSON.parse(storedJSON);
+        if(stateFromUrl!==stored.random) return TEXT("HATA ADIM A3: CSRF state eşleşmiyor",403);
+
+        // Token
+        let token; try{ token=await exchangeCodeForToken("kick", code, stored.codeVerifier, env); }
+        catch(e){ return TEXT(`HATA ADIM A4: Token alınamadı\n\n${e.message}`,500); }
+
+        // Viewer
+        let viewer; try{ viewer=await getKickViewer(token.access_token); }
+        catch(e){ return TEXT(`HATA ADIM A5: Kick kullanıcı bilgisi alınamadı\n\n${e.message}`,500); }
+
+        // Yetkili Kick kullanıcıları
+        const allowList=(norm(env.ADMIN_KICK_USERNAMES||"doxish").split(",").map(s=>s.trim().toLowerCase()).filter(Boolean));
+        const ok = allowList.includes(String(viewer.username||"").toLowerCase());
+
+        // Redirect -> /admin
+        const redir=new URL(`/admin`, env.APP_URL);
+        redir.searchParams.set("admin", ok ? "1":"0");
+        redir.searchParams.set("kick_username", viewer.username||"");
+        redir.searchParams.set("kick_viewer_id", viewer.id?String(viewer.id):"");
+
+        const headers={ Location:redir.toString(), "Set-Cookie": [
+          setCookie("oauth_state_admin","",0),
+          setCookie("admin_auth", ok ? "1":"", ok? 3600:0),   // 1 saat
+          setCookie("admin_user", viewer.username||"", ok? 3600:0)
+        ].join(", ") };
+
+        return new Response(null,{ status:302, headers });
+      }
+
+      /* -------- Admin: Check / Logout -------- */
+      if(seg[1]==="admin" && seg[2]==="check" && method==="GET"){
+        const v=parseCookie(request,"admin_auth");
+        const u=parseCookie(request,"admin_user");
+        return JSONH({ authenticated: v==="1", user: u||null });
+      }
+      if(seg[1]==="admin" && seg[2]==="logout" && method==="POST"){
+        return new Response(null,{ status:204, headers:{ "Set-Cookie":[ setCookie("admin_auth","",0), setCookie("admin_user","",0) ].join(", ") }});
+      }
+
+      /* -------- Password Admin login (opsiyonel) -------- */
       if(seg[1]==="login" && method==="POST"){
-        const body = await safeJsonReq(request);
-        const provided = body.password ?? body.pass ?? body.p ?? "";
-        const auth = isAdminAuthorized(provided, env);
-        if(auth.ok) return JSONH({ success:true, mode:auth.mode });
-        return JSONH({ error:"Invalid password" }, 401);
+        const body=await safeJsonReq(request);
+        const provided=body.password ?? body.pass ?? body.p ?? "";
+        const auth=isAdminAuthorizedPassword(provided, env);
+        if(auth.ok){
+          // Başarılıysa admin çerezi de set edelim (opsiyonel)
+          const headers={ "Set-Cookie":[ setCookie("admin_auth","1",3600), setCookie("admin_user","password-admin",3600) ].join(", ") };
+          return new Response(JSON.stringify({ success:true, mode:auth.mode }),{ status:200, headers:{...headers,"Content-Type":"application/json; charset=utf-8"}});
+        }
+        return JSONH({ error:"Invalid password" },401);
       }
 
-      // Streamers CRUD
+      /* -------- Streamers CRUD -------- */
       if(seg[1]==="streamers"){
         if(method==="GET" && !seg[2]){
-          const list=await STREAMERS.list();
-          const items=await Promise.all(list.keys.map(async k=>{ const v=await STREAMERS.get(k.name); return v?{ slug:k.name, ...JSON.parse(v) }:null; }));
+          const list=await env.STREAMERS.list();
+          const items=await Promise.all(list.keys.map(async k=>{ const v=await env.STREAMERS.get(k.name); return v?{ slug:k.name, ...JSON.parse(v) }:null; }));
           return JSONH(items.filter(Boolean));
         }
         if(method==="GET" && seg[2]){
-          const v=await STREAMERS.get(seg[2]); if(!v) return JSONH({ error:"Streamer not found" },404);
+          const v=await env.STREAMERS.get(seg[2]); if(!v) return JSONH({ error:"Streamer not found" },404);
           return JSONH({ slug:seg[2], ...JSON.parse(v) });
         }
         if(method==="POST"){
           const b=await safeJsonReq(request);
-          const provided = b.password ?? b.pass ?? b.p ?? "";
-          const auth = isAdminAuthorized(provided, env);
-          if(!auth.ok) return JSONH({ error:"Unauthorized" },401);
+          // Hem admin çerezi hem password kabul: biri yeter
+          const hasCookie=parseCookie(request,"admin_auth")==="1";
+          const pw = isAdminAuthorizedPassword(b.password ?? b.pass ?? b.p ?? "", env);
+          if(!hasCookie && !pw.ok) return JSONH({ error:"Unauthorized" },401);
 
           const slug=norm(b.slug);
           const displayTextRaw=norm(b.displayText||b.title);
@@ -308,42 +388,41 @@ async function handleRequest(context){
             discordBotToken: norm(b.discordBotToken),
             broadcaster_user_id: b.broadcaster_user_id || null
           };
-          await STREAMERS.put(slug, JSON.stringify(rec));
+          await env.STREAMERS.put(slug, JSON.stringify(rec));
           return JSONH({ success:true, slug },201);
         }
         if(method==="PUT" && seg[2]){
           const b=await safeJsonReq(request);
-          const provided = b.password ?? b.pass ?? b.p ?? "";
-          const auth = isAdminAuthorized(provided, env);
-          if(!auth.ok) return JSONH({ error:"Unauthorized" },401);
+          const hasCookie=parseCookie(request,"admin_auth")==="1";
+          const pw = isAdminAuthorizedPassword(b.password ?? b.pass ?? b.p ?? "", env);
+          if(!hasCookie && !pw.ok) return JSONH({ error:"Unauthorized" },401);
 
-          const v=await STREAMERS.get(seg[2]); if(!v) return JSONH({ error:"Streamer not found" },404);
+          const v=await env.STREAMERS.get(seg[2]); if(!v) return JSONH({ error:"Streamer not found" },404);
           const cur=JSON.parse(v);
           const patch={ ...cur, ...b };
 
-          // Normalize editable fields
           if("title" in patch) patch.title = norm(patch.title);
           if("displayText" in patch) patch.displayText = norm(patch.displayText);
           if(!patch.displayText && patch.title) patch.displayText = patch.title;
 
-          const fields = ["subtitle","customBackgroundUrl","kickRedirectorUrl","discordRedirectorUrl","botghostWebhookUrl","discordGuildId","discordRoleId","discordBotToken"];
-          for(const f of fields) if(f in patch) patch[f] = norm(patch[f]);
+          const fields=["subtitle","customBackgroundUrl","kickRedirectorUrl","discordRedirectorUrl","botghostWebhookUrl","discordGuildId","discordRoleId","discordBotToken"];
+          for(const f of fields) if(f in patch) patch[f]=norm(patch[f]);
 
-          await STREAMERS.put(seg[2], JSON.stringify(patch));
+          await env.STREAMERS.put(seg[2], JSON.stringify(patch));
           return JSONH({ success:true, slug:seg[2] });
         }
         if(method==="DELETE" && seg[2]){
           const b=await safeJsonReq(request);
-          const provided = b.password ?? b.pass ?? b.p ?? "";
-          const auth = isAdminAuthorized(provided, env);
-          if(!auth.ok) return JSONH({ error:"Unauthorized" },401);
+          const hasCookie=parseCookie(request,"admin_auth")==="1";
+          const pw = isAdminAuthorizedPassword(b.password ?? b.pass ?? b.p ?? "", env);
+          if(!hasCookie && !pw.ok) return JSONH({ error:"Unauthorized" },401);
 
-          await STREAMERS.delete(seg[2]);
+          await env.STREAMERS.delete(seg[2]);
           return JSONH({ success:true });
         }
       }
 
-      // OAuth redirect
+      /* -------- Streamer OAuth (mevcut akış) -------- */
       if(seg[1]==="auth" && seg[2]==="redirect" && seg[3]){
         const provider=seg[3];
         const streamer=url.searchParams.get("streamer");
@@ -375,7 +454,6 @@ async function handleRequest(context){
         return new Response(null,{ status:302, headers:{ Location:authUrl.toString(), "Set-Cookie":cookie }});
       }
 
-      // OAuth callback
       if(seg[1]==="auth" && seg[2]==="callback" && seg[3]){
         const provider=seg[3];
         const code=url.searchParams.get("code");
@@ -389,8 +467,19 @@ async function handleRequest(context){
         const stored=JSON.parse(storedJSON);
         if(stateFromUrl!==stored.random) return TEXT("HATA ADIM 3: CSRF state eşleşmiyor",403);
 
-        let token; try{ token=await exchangeCodeForToken(provider, code, stored.codeVerifier, env); }
-        catch(e){ return TEXT(`HATA ADIM 4: Token alınamadı\n\n${e.message}`,500); }
+        let token; try{
+          let verifier=stored.codeVerifier;
+          let redirectUri = provider==="kick" ? `${env.APP_URL}/api/auth/callback/kick` : `${env.APP_URL}/api/auth/callback/discord`;
+          let tokenUrl;
+          if(provider==="discord"){
+            tokenUrl="https://discord.com/api/oauth2/token";
+            const body=new URLSearchParams({ client_id:env.DISCORD_CLIENT_ID, client_secret:env.DISCORD_CLIENT_SECRET, grant_type:"authorization_code", code, redirect_uri:redirectUri });
+            const r=await fetch(tokenUrl,{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+            if(!r.ok) throw new Error(await r.text()); token=await r.json();
+          } else {
+            token=await exchangeCodeForToken("kick", code, verifier, { ...env, APP_URL: env.APP_URL });
+          }
+        }catch(e){ return TEXT(`HATA ADIM 4: Token alınamadı\n\n${e.message}`,500); }
 
         let isSub=false, methodUsed="", exp="", kickViewerId="", kickUsername="", discordUserId="";
         try{
@@ -427,7 +516,7 @@ async function handleRequest(context){
       return TEXT("Not Found",404);
     }
 
-    // statik dosyaları Pages servis ediyor
+    // statikler Pages tarafından
     return TEXT("Not Found",404);
   }catch(err){
     console.error("KRITIK HATA:", err);
