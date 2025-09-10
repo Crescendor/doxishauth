@@ -1,230 +1,290 @@
-document.addEventListener('DOMContentLoaded', () => {
+/**
+ * Gelişmiş Frontend Kodu v10.2
+ * Bu kod, ChatGPT tarafından sağlanan v10.1 backend ve yeni görsel tasarımla tam uyumlu çalışır.
+ * - Kalıcı veri saklama (localStorage) ile çoklu platform durum yönetimi.
+ * - Yeni görsel arayüzü (UI) yönetir.
+ * - Oturum yönetimi (sessionStorage) ile admin panelini güvence altına alır.
+ */
+document.addEventListener("DOMContentLoaded", () => {
     const pages = {
-        home: document.getElementById('home-page'),
-        streamer: document.getElementById('streamer-page'),
-        login: document.getElementById('login-page'),
-        admin: document.getElementById('admin-page'),
+        home: document.getElementById("home-page"),
+        appLayout: document.getElementById("app-layout"),
+        streamer: document.getElementById("streamer-page"),
+        adminLogin: document.getElementById("admin-login-page"),
+        adminPanel: document.getElementById("admin-panel-page"),
     };
 
-    const streamerNameEl = document.getElementById('streamer-name');
-    const displayTextEl = document.getElementById('display-text');
-    const kickLoginBtn = document.getElementById('kick-login');
-    const discordLoginBtn = document.getElementById('discord-login');
-    const subscriptionStatusEl = document.getElementById('subscription-status');
+    // Belirli bir sayfayı veya layout'u aktif hale getirir
+    const showPage = (pageName) => {
+        // Önce tüm ana container'ları gizle
+        pages.home.classList.remove("active");
+        pages.appLayout.classList.remove("active");
+
+        if (pageName === "streamer" || pageName === "adminLogin" || pageName === "adminPanel") {
+             pages.appLayout.classList.add("active"); // Logo + Kart layoutunu göster
+             
+             // İlgili kartı layout içinde göster
+             document.getElementById('streamer-page').style.display = 'none';
+             document.getElementById('admin-page-container').style.display = 'none';
+             
+             if (pageName === "streamer") {
+                document.getElementById('streamer-page').style.display = 'block';
+             } else {
+                document.getElementById('admin-page-container').style.display = 'block';
+                document.getElementById('admin-login-page').style.display = pageName === 'adminLogin' ? 'flex' : 'none';
+                document.getElementById('admin-panel-page').style.display = pageName === 'adminPanel' ? 'flex' : 'none';
+             }
+        } else {
+            // Sadece ana sayfa gibi tekil sayfaları göster
+            pages[pageName]?.classList.add("active");
+        }
+    };
     
-    const loginForm = document.getElementById('login-form');
-    const passwordInput = document.getElementById('password-input');
-    const loginErrorEl = document.getElementById('login-error');
+    // Ekranın altında bilgilendirme mesajı gösterir
+    const showToast = (message, isError = false) => {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.style.backgroundColor = isError ? '#c53030' : '#2d3748';
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 3000);
+    };
 
-    const addStreamerForm = document.getElementById('add-streamer-form');
-    const streamerSlugInput = document.getElementById('streamer-slug-input');
-    const displayTextFormInput = document.getElementById('display-text-input');
-    const discordGuildIdInput = document.getElementById('discord-guild-id-input');
-    const discordRoleIdInput = document.getElementById('discord-role-id-input');
-    const discordBotTokenInput = document.getElementById('discord-bot-token-input');
-    const streamerListEl = document.getElementById('streamer-list');
-    const formErrorEl = document.getElementById('form-error');
-    const addStreamerBtn = document.getElementById('add-streamer-btn');
-
-    let currentStreamer = null;
-
-    // --- Rota Yönetimi ---
+    // URL'e göre hangi sayfanın gösterileceğini belirler
     const handleRouting = async () => {
-        const path = window.location.pathname.toLowerCase();
-        
-        if (path === '/admin') {
-            if (sessionStorage.getItem('isAdminAuthenticated')) {
-                showPage('admin');
+        const path = window.location.pathname.replace(/^\/+/, "");
+        if (path.toLowerCase() === "admin") {
+            if (sessionStorage.getItem("isAdminAuthenticated")) {
+                showPage("adminPanel");
                 await loadAdminPanel();
             } else {
-                showPage('login');
+                showPage("adminLogin");
             }
-        } else if (path.length > 1) {
-            const slug = path.substring(1);
-            currentStreamer = slug;
-            await loadStreamerPage(slug);
-        } else {
-            showPage('home');
-        }
-    };
+        } else if (path) {
+            try {
+                const response = await fetch(`/api/streamers/${path}`);
+                if (!response.ok) {
+                    showPage("home");
+                    return;
+                }
+                const streamer = await response.json();
+                
+                // Arayüzü yayıncı bilgileriyle doldur
+                document.getElementById("streamer-name").textContent = streamer.slug;
+                document.getElementById("display-text").textContent = streamer.displayText;
+                
+                // Butonlara tıklama olaylarını ata
+                document.getElementById("kick-login").onclick = () => window.location.href = `/api/auth/redirect/kick?streamer=${streamer.slug}`;
+                const discordButton = document.getElementById("discord-login");
+                if (streamer.discordGuildId && streamer.discordRoleId) {
+                    discordButton.style.display = "flex";
+                    discordButton.onclick = () => window.location.href = `/api/auth/redirect/discord?streamer=${streamer.slug}`;
+                } else {
+                    discordButton.style.display = "none";
+                }
+                
+                showPage("streamer");
+                handleCallbackAndUI(streamer.slug);
 
-    const showPage = (pageId) => {
-        Object.values(pages).forEach(page => page.classList.remove('active'));
-        if (pages[pageId]) {
-            pages[pageId].classList.add('active');
+            } catch (error) {
+                console.error("Yayıncı verisi alınırken hata:", error);
+                showPage("home");
+            }
+        } else {
+            showPage("home");
         }
     };
     
-    // --- API İstek Yardımcısı ---
-    const apiRequest = async (endpoint, options = {}) => {
-        try {
-            const response = await fetch(`/api${endpoint}`, options);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Bilinmeyen bir hata oluştu.' }));
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('API isteği hatası:', error);
-            throw error;
-        }
+    // localStorage'den veri okur
+    const getPersistentData = (streamerSlug) => {
+        const key = `doxishauth_${streamerSlug}`;
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : { kick: null, discord: null };
     };
 
-    // --- Yayıncı Sayfası Mantığı ---
-    const loadStreamerPage = async (slug) => {
-        try {
-            const data = await apiRequest(`/streamers/${slug}`);
-            streamerNameEl.textContent = data.slug;
-            displayTextEl.textContent = data.displayText;
-            showPage('streamer');
-            checkSubscriptionStatus();
-        } catch (error) {
-            window.location.pathname = '/'; // Yayıncı bulunamazsa anasayfaya yönlendir
-        }
+    // localStorage'e veri yazar
+    const setPersistentData = (streamerSlug, data) => {
+        const key = `doxishauth_${streamerSlug}`;
+        localStorage.setItem(key, JSON.stringify(data));
     };
+    
+    // Giriş sonrası URL'den gelen sonucu işler ve arayüzü günceller
+    const handleCallbackAndUI = (streamerSlug) => {
+        const params = new URLSearchParams(window.location.search);
+        let data = getPersistentData(streamerSlug);
 
-    const checkSubscriptionStatus = () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const subscribed = urlParams.get('subscribed');
-        const provider = urlParams.get('provider');
-        const error = urlParams.get('error');
-
-        if (error) {
-            subscriptionStatusEl.textContent = 'Giriş sırasında bir hata oluştu.';
-            subscriptionStatusEl.className = 'mt-6 text-lg h-5 font-semibold text-red-400';
-        } else if (subscribed !== null) {
-             if (subscribed === 'true') {
-                subscriptionStatusEl.textContent = `${provider.charAt(0).toUpperCase() + provider.slice(1)} aboneliğiniz doğrulandı!`;
-                subscriptionStatusEl.className = 'mt-6 text-lg h-5 font-semibold text-green-400';
+        // Eğer URL'de yeni bir sonuç varsa, veriyi güncelle
+        if (params.has("provider")) {
+            const provider = params.get("provider");
+            const isSubscribed = params.get("subscribed") === "true";
+            const error = params.get("error");
+            
+            if (error) {
+                showToast(`${provider.toUpperCase()} girişi başarısız: ${error}`, true);
             } else {
-                subscriptionStatusEl.textContent = `Bu kanala ${provider.charAt(0).toUpperCase() + provider.slice(1)} aboneliğiniz bulunamadı.`;
-                subscriptionStatusEl.className = 'mt-6 text-lg h-5 font-semibold text-yellow-400';
+                 data[provider] = {
+                    linked: true,
+                    subscribed: isSubscribed,
+                    checkedAt: new Date().toISOString()
+                };
             }
+            setPersistentData(streamerSlug, data);
+            
+            // Temiz bir görünüm için URL'i temizle
+            window.history.replaceState({}, document.title, `/${streamerSlug}`);
         }
-        // URL'den parametreleri temizle
-        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Arayüzü en güncel veriye göre güncelle
+        updateUI(data);
     };
 
-    kickLoginBtn.addEventListener('click', () => {
-        window.location.href = `/api/auth/redirect/kick?streamer=${currentStreamer}`;
-    });
+    // Arayüzü (UI) en güncel verilere göre günceller
+    const updateUI = (data) => {
+        // Discord UI
+        const discordData = data.discord;
+        document.getElementById("discord-status-not-linked").classList.toggle("hidden", !!discordData);
+        document.getElementById("discord-status-linked").classList.toggle("hidden", !discordData || discordData.subscribed === null);
+        document.getElementById("discord-status-subscribed").classList.toggle("hidden", !discordData || !discordData.subscribed);
+        document.getElementById("discord-status-not-subscribed").classList.toggle("hidden", !discordData || discordData.subscribed);
 
-    discordLoginBtn.addEventListener('click', () => {
-        window.location.href = `/api/auth/redirect/discord?streamer=${currentStreamer}`;
-    });
+        // Kick UI
+        const kickData = data.kick;
+        document.getElementById("kick-status-not-linked").classList.toggle("hidden", !!kickData);
+        document.getElementById("kick-status-linked").classList.toggle("hidden", !kickData || kickData.subscribed === null);
+        document.getElementById("kick-status-subscribed").classList.toggle("hidden", !kickData || !kickData.subscribed);
+        document.getElementById("kick-status-not-subscribed").classList.toggle("hidden", !kickData || kickData.subscribed);
 
+        // Eğer her iki kontrol de yapıldıysa sonuç mesajını göster
+        document.getElementById("result-message").classList.toggle("hidden", !(kickData && discordData));
+    };
 
-    // --- Admin Giriş Mantığı ---
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            loginErrorEl.textContent = '';
-            try {
-                await apiRequest('/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: passwordInput.value })
-                });
-                sessionStorage.setItem('isAdminAuthenticated', 'true');
-                window.location.pathname = '/admin';
-            } catch (error) {
-                loginErrorEl.textContent = 'Hatalı şifre. Lütfen tekrar deneyin.';
+    /* -------------------- ADMIN PANEL LOGIC -------------------- */
+    
+    // Admin Giriş Formu
+    document.getElementById("admin-login-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const password = document.getElementById("admin-password-input").value;
+        try {
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+            if (response.ok) {
+                sessionStorage.setItem("isAdminAuthenticated", "true");
+                sessionStorage.setItem("adminPassword", password);
+                window.location.pathname = "/admin"; // Sayfayı yenileyerek paneli yükle
+            } else {
+                showToast("Hatalı şifre!", true);
             }
+        } catch (error) {
+            showToast("Giriş sırasında bir hata oluştu.", true);
+        }
+    });
+    
+    // Çıkış Butonu
+    const logoutBtn = document.getElementById("logout-btn");
+    if(logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            sessionStorage.clear();
+            window.location.pathname = "/";
         });
     }
 
-    // --- Admin Paneli Mantığı ---
+    // Admin Panelini Yükle
     const loadAdminPanel = async () => {
+        const listContainer = document.getElementById("streamer-list-container");
+        listContainer.innerHTML = '<div class="loader"></div>';
+
         try {
-            const streamers = await apiRequest('/streamers');
-            renderStreamerList(streamers);
-        } catch (error) {
-            console.error('Yayıncılar yüklenemedi:', error);
-        }
-    };
-    
-    const renderStreamerList = (streamers) => {
-        streamerListEl.innerHTML = '';
-        if (streamers.length === 0) {
-             streamerListEl.innerHTML = '<p class="text-gray-500">Henüz yayıncı eklenmemiş.</p>';
-             return;
-        }
-        streamers.forEach(streamer => {
-            const li = document.createElement('div');
-            li.className = 'bg-gray-700 p-3 rounded-lg flex justify-between items-center';
-            li.innerHTML = `
-                <div>
-                    <a href="/${streamer.slug}" target="_blank" class="font-semibold text-green-400 hover:underline">${streamer.slug}</a>
-                    <p class="text-sm text-gray-400">"${streamer.displayText}"</p>
-                </div>
-                <button data-slug="${streamer.slug}" class="delete-btn bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md text-sm btn-press">Sil</button>
-            `;
-            streamerListEl.appendChild(li);
-        });
-    };
-
-    if (addStreamerForm) {
-        addStreamerForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            formErrorEl.textContent = '';
-            addStreamerBtn.disabled = true;
-            addStreamerBtn.innerHTML = '<div class="loader"></div>';
-
-            const formData = {
-                slug: streamerSlugInput.value.toLowerCase().trim(),
-                displayText: displayTextFormInput.value.trim(),
-                discordGuildId: discordGuildIdInput.value.trim(),
-                discordRoleId: discordRoleIdInput.value.trim(),
-                discordBotToken: discordBotTokenInput.value.trim(),
-                password: sessionStorage.getItem('adminPassword') || passwordInput.value
-            };
+            const response = await fetch("/api/streamers");
+            if (!response.ok) throw new Error("API'den veri alınamadı.");
+            const streamers = await response.json();
             
-            // Sadece Discord ayarlarının hepsi doluysa veya hepsi boşsa devam et
-            const discordFields = [formData.discordGuildId, formData.discordRoleId, formData.discordBotToken];
-            const filledFields = discordFields.filter(f => f).length;
-            if (filledFields > 0 && filledFields < 3) {
-                formErrorEl.textContent = 'Lütfen tüm Discord alanlarını doldurun veya hepsini boş bırakın.';
-                addStreamerBtn.disabled = false;
-                addStreamerBtn.innerHTML = '<span>Yayıncıyı Ekle</span>';
+            listContainer.innerHTML = "";
+            if(streamers.length === 0){
+                listContainer.innerHTML = `<p class="text-gray-500 text-center">Henüz yayıncı eklenmemiş.</p>`;
                 return;
             }
 
-            try {
-                await apiRequest('/streamers', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
-                });
-                addStreamerForm.reset();
-                await loadAdminPanel();
-            } catch (error) {
-                formErrorEl.textContent = `Hata: ${error.message}`;
-            } finally {
-                addStreamerBtn.disabled = false;
-                addStreamerBtn.innerHTML = '<span>Yayıncıyı Ekle</span>';
-            }
-        });
-    }
+            streamers.forEach(streamer => {
+                const item = document.createElement("div");
+                item.className = "bg-gray-800 p-3 rounded-lg flex justify-between items-center";
+                item.innerHTML = `
+                    <div>
+                        <a href="/${streamer.slug}" target="_blank" class="text-lg font-semibold text-green-400 hover:underline">${streamer.slug}</a>
+                        <p class="text-sm text-gray-400">${streamer.displayText}</p>
+                    </div>
+                    <button data-slug="${streamer.slug}" class="delete-btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg btn-press text-sm">Sil</button>
+                `;
+                listContainer.appendChild(item);
+            });
+            
+            document.querySelectorAll(".delete-btn").forEach(button => {
+                button.addEventListener("click", handleDeleteStreamer);
+            });
+        } catch (error) {
+            listContainer.innerHTML = `<p class="text-red-400 text-center">Yayıncılar yüklenemedi: ${error.message}</p>`;
+        }
+    };
 
-    streamerListEl.addEventListener('click', async (e) => {
-        if (e.target.classList.contains('delete-btn')) {
-            const slug = e.target.dataset.slug;
-            if (confirm(`'${slug}' adlı yayıncıyı silmek istediğinizden emin misiniz?`)) {
-                try {
-                     await apiRequest(`/streamers/${slug}`, {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ password: sessionStorage.getItem('adminPassword') || passwordInput.value })
-                    });
-                    await loadAdminPanel();
-                } catch (error) {
-                    alert(`Hata: ${error.message}`);
-                }
+    // Yayıncı Sil
+    const handleDeleteStreamer = async (e) => {
+        const slug = e.target.dataset.slug;
+        if (!confirm(`'${slug}' adlı yayıncıyı silmek istediğinizden emin misiniz?`)) return;
+        
+        const password = sessionStorage.getItem("adminPassword");
+        try {
+            const response = await fetch(`/api/streamers/${slug}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+            if (response.ok) {
+                showToast("Yayıncı başarıyla silindi.");
+                await loadAdminPanel();
+            } else {
+                throw new Error("Silme işlemi başarısız oldu.");
             }
+        } catch (error) {
+            showToast("Yayıncı silinirken bir hata oluştu.", true);
+        }
+    };
+    
+    // Yayıncı Ekle
+    document.getElementById("add-streamer-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+        data.password = sessionStorage.getItem("adminPassword");
+        
+        // İsteğe bağlı alanları boşsa gönderme
+        for(const key in data) {
+            if(data[key] === '') {
+                delete data[key];
+            }
+        }
+        
+        try {
+            const response = await fetch("/api/streamers", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (response.ok) {
+                showToast("Yayıncı başarıyla eklendi.");
+                e.target.reset();
+                await loadAdminPanel();
+            } else {
+                 const error = await response.json();
+                 throw new Error(error.error || "Ekleme işlemi başarısız oldu.");
+            }
+        } catch (error) {
+            showToast(`Hata: ${error.message}`, true);
         }
     });
 
-    // Başlangıç
+    // Sayfa yüklendiğinde yönlendirmeyi başlat
     handleRouting();
+    window.addEventListener("popstate", handleRouting);
 });
 
