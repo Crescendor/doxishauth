@@ -1,9 +1,9 @@
 // functions/api/[[path]].js
 /**
- * Kick/Discord Abonelik Doğrulama & Webhook Sistemi – v15.1 (Nihai Abonelik Düzeltmesi)
- * Bu backend, abonelik tespit mantığını, 'expires_at' verisini daha sağlam bir şekilde
- * arayacak şekilde güncelleyerek, abone olan kullanıcıların yanlışlıkla "abone değil"
- * olarak işaretlenmesi sorununu çözer.
+ * Kick/Discord Abonelik Doğrulama & Webhook Sistemi – v16.0 (Nihai Kararlı Sürüm)
+ * Bu backend, kullanıcının en başta çalışan ve güvendiği, çok adımlı, sağlam
+ * Kick abonelik tespit mantığına geri döner ve bunu en son istenen tüm arayüz
+ * ve fonksiyonel geliştirmelerle (geniş admin paneli, düzenleme, webhook) birleştirir.
  */
 
 export async function onRequest(context) {
@@ -15,6 +15,8 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const JSONH = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
 const TEXT = (msg, status = 400) => new Response(msg, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 async function safeJsonReq(request) { try { return await request.json(); } catch { return {}; } }
+async function safeText(res) { try { return await res.text(); } catch { return ""; } }
+async function safeJsonRes(res) { const raw = await res.text(); try { return JSON.parse(raw); } catch { return { _raw: raw }; } }
 
 /* -------------------- PKCE -------------------- */
 function b64url(bytes) { return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+/g, ""); }
@@ -24,7 +26,16 @@ async function generateCodeChallenge(verifier) {
   return b64url(new Uint8Array(digest));
 }
 
-/* -------------------- Kick API Logic -------------------- */
+/* -------------------- Headers -------------------- */
+function siteHeaders(refererPathOrUrl) {
+  return {
+    Accept: "application/json", "User-Agent": UA,
+    Referer: refererPathOrUrl?.startsWith("http") ? refererPathOrUrl : `https://kick.com/${refererPathOrUrl || ""}`,
+    Origin: "https://kick.com",
+  };
+}
+
+/* -------------------- Kick API Logic (Güvenilir Versiyon) -------------------- */
 async function getKickViewer(accessToken) {
   const r = await fetch("https://api.kick.com/public/v1/users", { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "User-Agent": UA } });
   if (!r.ok) throw new Error(`Kick Public API 'users' hatası (${r.status}): ${await r.text()}`);
@@ -37,50 +48,48 @@ async function getKickViewer(accessToken) {
 }
 
 async function getChannelBySlug(slug) {
-    const headers = { Accept: "application/json", "User-Agent": UA, Referer: `https://kick.com/${slug}`, Origin: "https://kick.com" };
-    const v2Url = `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`;
-    let response = await fetch(v2Url, { headers });
-    if (response.ok) {
-        const j = await response.json();
-        const channelId = j?.id ?? j?.chatroom?.channel_id;
-        if (channelId) return { channelId };
-    }
-    const v1Url = `https://kick.com/api/v1/channels/${encodeURIComponent(slug)}`;
-    response = await fetch(v1Url, { headers });
-    if (!response.ok) throw new Error(`Kanal bilgisi alınamadı (v1 & v2 denendi). Son Hata (v1, ${response.status})`);
-    const j = await response.json();
-    const channelId = j?.id ?? j?.chatroom?.channel_id;
-    if (!channelId) throw new Error(`Kanal ID bulunamadı (v1). Cevap: ${JSON.stringify(j)}`);
-    return { channelId };
+  const url = `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`;
+  const r = await fetch(url, { headers: siteHeaders(slug) });
+  if (!r.ok) throw new Error(`Kanal bilgisi alınamadı (${r.status}): ${await r.text()}`);
+  const j = await r.json();
+  const channelId = j?.id ?? j?.chatroom?.channel_id ?? j?.user?.streamer_channel?.id;
+  if (!channelId) throw new Error(`Kanal ID bulunamadı. Cevap: ${JSON.stringify(j)}`);
+  return { channelId, raw: j };
 }
 
 async function getIdentityByUserId(channelId, userId, refererSlug) {
   const url = `https://kick.com/api/v2/channels/${channelId}/users/${userId}/identity`;
-  const r = await fetch(url, { headers: { Accept: "application/json", "User-Agent": UA, Referer: `https://kick.com/${refererSlug}` } });
-  if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`Kick kimlik bilgisi alınamadı (${r.status})`);
-  return r.json();
+  const r = await fetch(url, { headers: siteHeaders(refererSlug) });
+  if (r.status === 404) return { ok: true, data: null };
+  if (!r.ok) return { ok: false, status: r.status, raw: await safeText(r) };
+  return { ok: true, data: await safeJsonRes(r) };
 }
 
-// DÜZELTME: Abonelik kontrol mantığı, daha sağlam olan 'extractSubscriptionEvidence' ile değiştirildi.
 function extractSubscriptionEvidence(payload) {
-    if (!payload) return { hasSubscription: false };
     const identity = payload?.identity || payload?.user_identity || payload;
     const expires_at = identity?.subscription?.expires_at ?? identity?.subscriber?.expires_at ?? identity?.badges?.subscriber?.expires_at ?? payload?.expires_at ?? null;
-
     if (typeof expires_at === "string" && expires_at.trim().length > 0) {
         return { hasSubscription: true, source: "expires_at", expires_at };
     }
-    return { hasSubscription: false, source: "none" };
+    const badges = identity?.badges || identity?.identity?.badges || payload?.badges || [];
+    const hasSubBadge = Array.isArray(badges) ? badges.some((b) => `${b?.type || b?.name || b?.text || ""}`.toLowerCase().includes("sub")) : !!badges?.subscriber;
+    if (hasSubBadge) {
+        return { hasSubscription: true, source: "badge", expires_at: null };
+    }
+    return { hasSubscription: false, source: "none", expires_at: null };
 }
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     const viewer = await getKickViewer(accessToken);
     const { channelId } = await getChannelBySlug(streamerSlug);
-    const identityData = await getIdentityByUserId(channelId, viewer.id, streamerSlug);
-    const evidence = extractSubscriptionEvidence(identityData);
-    return { subscribed: evidence.hasSubscription, viewer };
+    const idRes = await getIdentityByUserId(channelId, viewer.id, streamerSlug);
+    if (idRes.ok && idRes.data) {
+        const ev = extractSubscriptionEvidence(idRes.data);
+        if (ev.hasSubscription) return { subscribed: true, viewer };
+    }
+    return { subscribed: false, viewer };
 }
+
 
 /* -------------------- Discord API Logic -------------------- */
 async function getDiscordViewer(accessToken) {
