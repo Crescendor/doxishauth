@@ -13,79 +13,62 @@
  * - Kural: identity yanıtında "expires_at" **varsa** = ABONE (tarihe bakmadan).
  * - KV (STREAMERS) yalnızca yayıncı kayıt/metni için; değiştirmene gerek yok.
  *
- * ENV:
- *  APP_URL
- *  ADMIN_PASSWORD
- *  KICK_CLIENT_ID, KICK_CLIENT_SECRET
- *  (Discord istersen: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET)
+ * Çevre değişkenleri:
+ * - APP_URL:             https://doxishauth.pages.dev (veya prod domain)
+ * - KICK_CLIENT_ID      / KICK_CLIENT_SECRET
+ * - DISCORD_CLIENT_ID   / DISCORD_CLIENT_SECRET
+ * - STREAMERS (KV)
+ * - ADMIN_PASSWORD (opsiyonel)
  */
 
-export async function onRequest(context) {
-  return handleRequest(context);
-}
-
-/* -------------------- Utilities -------------------- */
 const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-const JSONH = (obj, status = 200) =>
-  new Response(JSON.stringify(obj), {
+function TEXT(body, status = 200, headers = {}) {
+  return new Response(typeof body === "string" ? body : String(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: { "content-type": "text/plain; charset=utf-8", ...headers },
   });
-
-const TEXT = (msg, status = 400) =>
-  new Response(msg, {
-    status,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
-
-async function safeJsonReq(request) {
-  try {
-    return await request.json();
-  } catch {
-    return {};
-  }
 }
 
-async function safeText(res) {
+function JSONH(obj, status = 200, headers = {}) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", ...headers },
+  });
+}
+
+async function safeText(r) {
   try {
-    return await res.text();
+    return await r.text();
   } catch {
     return "";
   }
 }
-
-async function safeJsonRes(res) {
-  const raw = await res.text();
+async function safeJsonReq(req) {
   try {
-    return JSON.parse(raw);
+    return await req.json();
   } catch {
-    return { _raw: raw };
+    return {};
+  }
+}
+async function safeJsonRes(r) {
+  try {
+    return await r.json();
+  } catch {
+    const t = await safeText(r);
+    try {
+      return JSON.parse(t);
+    } catch {
+      return {};
+    }
   }
 }
 
-/* -------------------- PKCE -------------------- */
-function b64url(bytes) {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+/g, "");
-}
-function generateCodeVerifier() {
-  return b64url(crypto.getRandomValues(new Uint8Array(32)));
-}
-async function generateCodeChallenge(verifier) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(verifier)
-  );
-  return b64url(new Uint8Array(digest));
-}
-
-/* -------------------- Headers -------------------- */
+/* -------------------- Kick Site Headers -------------------- */
 function siteHeaders(refererPathOrUrl) {
   return {
-    Accept: "application/json",
+    Accept: "application/json, text/plain, */*",
     "User-Agent": UA,
     Referer:
       refererPathOrUrl?.startsWith("http")
@@ -129,22 +112,19 @@ async function getKickViewer(accessToken) {
     );
   }
 
-  return {
-    id: user_id,
-    username,
-    profile_picture: rec?.profile_picture ?? rec?.avatar_url ?? null,
-  };
+  return { id: String(user_id), username: String(username) };
 }
 
-/* -------------------- Kick Site v2: Channel & Identity -------------------- */
+/* -------------------- Kick Site API helpers -------------------- */
 async function getChannelBySlug(slug) {
-  const url = `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`;
-  const r = await fetch(url, { headers: siteHeaders(slug) });
-  if (!r.ok) throw new Error(`Kanal bilgisi alınamadı (${r.status}): ${await r.text()}`);
-  const j = await r.json();
-  const channelId = j?.id ?? j?.chatroom?.channel_id ?? j?.user?.streamer_channel?.id;
-  if (!channelId) throw new Error(`Kanal ID bulunamadı. Cevap: ${JSON.stringify(j)}`);
-  return { channelId, raw: j };
+  const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`, {
+    headers: siteHeaders(slug),
+  });
+  if (!r.ok) throw new Error(`Kick Site API 'channels' hata (${r.status})`);
+  const j = await safeJsonRes(r);
+  const channelId = j?.data?.id ?? j?.id ?? j?.channel_id ?? j?.user?.id;
+  if (!channelId) throw new Error(`Channel bulunamadı: ${slug}`);
+  return { channelId };
 }
 
 async function getIdentityByUserId(channelId, userId, refererSlug) {
@@ -166,59 +146,39 @@ async function getIdentityByUsername(slug, username, refererSlug) {
 }
 
 async function getRecentMessages(channelId, refererSlug) {
-  const url = `https://kick.com/api/v2/channels/${channelId}/messages`;
-  const r = await fetch(url, { headers: siteHeaders(refererSlug) });
+  const r = await fetch(
+    `https://kick.com/api/v2/channels/${channelId}/messages?limit=50`,
+    { headers: siteHeaders(refererSlug) }
+  );
   if (!r.ok) return { ok: false, status: r.status, raw: await safeText(r) };
   return { ok: true, data: await safeJsonRes(r) };
 }
 
-/** "expires_at" varsa ABONE kabul; aksi halde badge bazlı sinyale bakar */
-function extractSubscriptionEvidence(payload, usernameForBadge) {
-  // Normalize identity-like nodes
-  const identity = payload?.identity || payload?.user_identity || payload;
+/* -------------------- Evidence Parser -------------------- */
+function extractSubscriptionEvidence(payload, username) {
+  // Kick API farklı yerlerde badge/bit alanları taşıyabiliyor
+  // "expires_at" varsa direkt ABONE kabul ediyoruz (tarih kontrolü yapmıyoruz)
+  const identity = payload?.identity ?? payload;
+  const expires = identity?.expires_at ?? identity?.subscription_expires_at ?? null;
 
-  // 1) expires_at varsa (hangi node'da olursa olsun) -> ABONE (policy gereği tarihe bakmadan)
-  const ex =
-    identity?.subscription?.expires_at ??
-    identity?.subscriber?.expires_at ??
-    identity?.badges?.subscriber?.expires_at ??
-    payload?.expires_at ??
-    null;
+  // messages → recent badges
+  const msgs =
+    Array.isArray(payload?.messages) ? payload.messages : payload?.data?.messages;
+  const hasBadge =
+    Array.isArray(identity?.badges)
+      ? identity.badges.some((b) => String(b?.name || "").toLowerCase().includes("sub"))
+      : !!identity?.subscriber;
 
-  if (typeof ex === "string" && ex.trim().length > 0) {
-    return { hasSubscription: true, source: "expires_at", expires_at: ex };
-  }
+  if (expires) return { hasSubscription: true, source: "identity:expires_at", expires_at: expires };
+  if (hasBadge) return { hasSubscription: true, source: "identity:badge", expires_at: expires };
 
-  // 2) Rozet/Badge (subscriber) sinyali
-  const badges =
-    identity?.badges ||
-    identity?.identity?.badges ||
-    payload?.badges ||
-    [];
-  const hasSubBadge = Array.isArray(badges)
-    ? badges.some((b) => `${b?.type || b?.name || b?.text || ""}`.toLowerCase().includes("sub"))
-    : !!badges?.subscriber;
-
-  if (hasSubBadge) {
-    return { hasSubscription: true, source: "badge", expires_at: null };
-  }
-
-  // 3) Messages dizisi (fallback)
-  if (Array.isArray(payload?.messages) || Array.isArray(payload)) {
-    const arr = Array.isArray(payload?.messages) ? payload.messages : payload;
-    for (const m of arr) {
-      const sender = m?.sender || m?.user || m?.identity || m?.user_identity;
-      const name = sender?.username || sender?.slug || sender?.name;
-      if (usernameForBadge && name && name.toLowerCase() !== usernameForBadge.toLowerCase())
-        continue;
-
-      const b =
-        sender?.badges ||
-        sender?.identity?.badges ||
-        sender?.user_identity?.badges ||
-        [];
-      const hadSub = Array.isArray(b)
-        ? b.some((x) => `${x?.type || x?.name || x?.text || ""}`.toLowerCase().includes("sub"))
+  if (Array.isArray(msgs)) {
+    const u = String(username || "").toLowerCase();
+    for (const m of msgs.slice(0, 20)) {
+      const author = String(m?.user?.username || m?.username || "").toLowerCase();
+      const b = m?.badges || m?.user?.badges || [];
+      const hadSub = author === u
+        ? (Array.isArray(b) && b.some((x) => String(x?.name || "").toLowerCase().includes("sub")))
         : !!b?.subscriber;
       if (hadSub) return { hasSubscription: true, source: "messages-badge", expires_at: null };
     }
@@ -256,14 +216,12 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug) {
     if (ev.hasSubscription) return { subscribed: true, method: "messages", details: ev };
   }
 
-  return { subscribed: false, method: "none", details: {} };
+  return { subscribed: false };
 }
 
-/* -------------------- Discord (opsiyonel) -------------------- */
-async function checkDiscordSubscription(accessToken, streamerInfo) {
-  const { discordGuildId, discordRoleId, discordBotToken } = streamerInfo || {};
-  if (!discordGuildId || !discordRoleId || !discordBotToken) return false;
-
+/* -------------------- Discord role check (optional) -------------------- */
+async function discordHasRole(env, accessToken, discordGuildId, discordRoleId, discordBotToken) {
+  // identify
   const u = await fetch("https://discord.com/api/users/@me", {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -300,210 +258,258 @@ async function exchangeCodeForToken(provider, code, codeVerifier, env) {
       grant_type: "authorization_code",
       code,
       redirect_uri: `${env.APP_URL}/api/auth/callback/kick`,
-      code_verifier: codeVerifier,
+      code_verifier: codeVerifier || "",
     });
   } else {
-    throw new Error("Unsupported provider");
+    throw new Error("Bilinmeyen provider");
   }
 
   const r = await fetch(tokenUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
   });
+  if (!r.ok) {
+    const t = await safeText(r);
+    throw new Error(`Token exchange hata (${r.status})\n${t}`);
+  }
+  return await r.json();
+}
 
-  if (!r.ok) throw new Error(await r.text());
-  return r.json(); // { access_token, ... }
+/* -------------------- PKCE -------------------- */
+function generateCodeVerifier() {
+  const raw = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...raw))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+async function generateCodeChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  const base64Digest = btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+  return base64Digest;
 }
 
 /* -------------------- Router -------------------- */
-async function handleRequest(context) {
+export const onRequest = async ({ request, env, params }) => {
   try {
-    const { request, env } = context;
     const url = new URL(request.url);
-    const seg = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
-    const method = request.method;
-    const STREAMERS = env.STREAMERS;
+    const path = url.pathname;
+    const seg = path.split("/").filter(Boolean);
+    const method = request.method.toUpperCase();
 
-    if (seg[0] === "api") {
-      // admin
-      if (seg[1] === "login" && method === "POST") {
-        const { password } = await safeJsonReq(request);
-        if (env.ADMIN_PASSWORD && password === env.ADMIN_PASSWORD) return JSONH({ success: true });
-        return JSONH({ error: "Invalid password" }, 401);
-      }
+    // /api altında değilse → Not Found
+    if (seg[0] !== "api") return TEXT("Not Found", 404);
 
-      // streamers CRUD (key = slug)
-      if (seg[1] === "streamers") {
-        if (method === "GET" && !seg[2]) {
-          const list = await STREAMERS.list();
-          const items = await Promise.all(
-            list.keys.map(async (k) => {
-              const v = await STREAMERS.get(k.name);
-              return v ? { slug: k.name, ...JSON.parse(v) } : null;
-            })
-          );
-          return JSONH(items.filter(Boolean));
-        }
-        if (method === "GET" && seg[2]) {
-          const v = await STREAMERS.get(seg[2]);
-          if (!v) return JSONH({ error: "Streamer not found" }, 404);
-          return JSONH({ slug: seg[2], ...JSON.parse(v) });
-        }
-        if (method === "POST") {
-          const {
-            slug,
-            displayText,
-            discordGuildId,
-            discordRoleId,
-            discordBotToken,
-            broadcaster_user_id, // opsiyonel cache
-            password,
-          } = await safeJsonReq(request);
+    /* ---- KV helpers ---- */
+    const kv = env.STREAMERS;
 
-          if (env.ADMIN_PASSWORD && password !== env.ADMIN_PASSWORD)
-            return JSONH({ error: "Unauthorized" }, 401);
-          if (!slug || !displayText)
-            return JSONH({ error: "Slug and displayText required" }, 400);
-
-          const rec = {
-            displayText,
-            discordGuildId,
-            discordRoleId,
-            discordBotToken,
-          };
-          if (broadcaster_user_id) rec.broadcaster_user_id = broadcaster_user_id;
-
-          await STREAMERS.put(slug, JSON.stringify(rec));
-          return JSONH({ success: true, slug }, 201);
-        }
-        if (method === "DELETE" && seg[2]) {
-          const { password } = await safeJsonReq(request);
-          if (env.ADMIN_PASSWORD && password !== env.ADMIN_PASSWORD)
-            return JSONH({ error: "Unauthorized" }, 401);
-          await STREAMERS.delete(seg[2]);
-          return JSONH({ success: true });
-        }
-      }
-
-      // OAuth redirect
-      if (seg[1] === "auth" && seg[2] === "redirect" && seg[3]) {
-        const provider = seg[3];
-        const streamer = url.searchParams.get("streamer");
-        if (!streamer) return TEXT("streamer query param required", 400);
-
-        const state = { streamer, random: crypto.randomUUID() };
-        let authUrl;
-
-        if (provider === "discord") {
-          authUrl = new URL("https://discord.com/api/oauth2/authorize");
-          authUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID);
-          authUrl.searchParams.set("redirect_uri", `${env.APP_URL}/api/auth/callback/discord`);
-          authUrl.searchParams.set("scope", "identify guilds.members.read");
-          authUrl.searchParams.set("response_type", "code");
-          authUrl.searchParams.set("state", state.random);
-        } else if (provider === "kick") {
-          const verifier = generateCodeVerifier();
-          const challenge = await generateCodeChallenge(verifier);
-          state.codeVerifier = verifier;
-
-          authUrl = new URL("https://id.kick.com/oauth/authorize");
-          authUrl.searchParams.set("client_id", env.KICK_CLIENT_ID);
-          authUrl.searchParams.set("redirect_uri", `${env.APP_URL}/api/auth/callback/kick`);
-          // sadece viewer bilgisi lazım
-          authUrl.searchParams.set("scope", "user:read");
-          authUrl.searchParams.set("response_type", "code");
-          authUrl.searchParams.set("code_challenge", challenge);
-          authUrl.searchParams.set("code_challenge_method", "S256");
-          authUrl.searchParams.set("state", state.random);
-        } else {
-          return TEXT("Unsupported provider", 400);
-        }
-
-        const cookie = `oauth_state=${encodeURIComponent(
-          JSON.stringify(state)
-        )}; HttpOnly; Path=/; Max-Age=600; Secure; SameSite=Lax`;
-
-        return new Response(null, {
-          status: 302,
-          headers: { Location: authUrl.toString(), "Set-Cookie": cookie },
-        });
-      }
-
-      // OAuth callback
-      if (seg[1] === "auth" && seg[2] === "callback" && seg[3]) {
-        const provider = seg[3];
-        const code = url.searchParams.get("code");
-        const stateParam = url.searchParams.get("state");
-        if (!code || !stateParam) return TEXT("HATA ADIM 1: code/state eksik", 400);
-
-        const cookie = request.headers.get("Cookie");
-        const stored = cookie
-          ? decodeURIComponent(cookie.match(/oauth_state=([^;]+)/)?.[1] || "")
-          : null;
-        if (!stored) return TEXT("HATA ADIM 2: Güvenlik çerezi yok", 400);
-
-        const parsed = JSON.parse(stored);
-        if (stateParam !== parsed.random) return TEXT("HATA ADIM 3: CSRF state eşleşmiyor", 403);
-
-        // token
-        let tokenData;
-        try {
-          tokenData = await exchangeCodeForToken(
-            provider,
-            code,
-            parsed.codeVerifier,
-            env
-          );
-        } catch (e) {
-          return TEXT(`HATA ADIM 4: Token alınamadı\n\n${e.message}`, 500);
-        }
-
-        // subscription check
-        let isSubscribed = false;
-        try {
-          const streamerSlug = parsed.streamer;
-          const streamerJSON = await STREAMERS.get(streamerSlug);
-          if (!streamerJSON) throw new Error(`Yayıncı '${streamerSlug}' KV'de yok.`);
-          const streamerInfo = JSON.parse(streamerJSON);
-
-          if (provider === "discord") {
-            isSubscribed = await checkDiscordSubscription(
-              tokenData.access_token,
-              streamerInfo
-            );
-          } else if (provider === "kick") {
-            const result = await checkKickSubscriptionViewer(
-              tokenData.access_token,
-              streamerSlug
-            );
-            isSubscribed = !!result.subscribed;
-          }
-        } catch (e) {
-          return TEXT(
-            `HATA ADIM 5: Abonelik kontrolü başarısız.\n\nDetay:\n${e.message}`,
-            500
-          );
-        }
-
-        const redir = new URL(`/${parsed.streamer}`, env.APP_URL);
-        redir.searchParams.set("subscribed", String(isSubscribed));
-        redir.searchParams.set("provider", provider);
-
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: redir.toString(),
-            "Set-Cookie": "oauth_state=; HttpOnly; Path=/; Max-Age=0",
-          },
-        });
-      }
-
-      // unknown /api
-      return TEXT("Not Found", 404);
+    // KV: get one
+    async function getStreamer(slug) {
+      const raw = await kv.get(`streamer:${slug}`);
+      return raw ? JSON.parse(raw) : null;
     }
 
-    // default
+    // KV: list
+    async function listStreamers() {
+      const { keys } = await kv.list({ prefix: "streamer:" });
+      const out = [];
+      for (const k of keys) {
+        const raw = await kv.get(k.name);
+        if (raw) out.push(JSON.parse(raw));
+      }
+      out.sort((a, b) => (a.slug || "").localeCompare(b.slug || ""));
+      return out;
+    }
+
+    // ---- ROUTES ----
+    if (seg[1] === "streamers" && method === "GET" && !seg[2]) {
+      const list = await listStreamers();
+      return JSONH(list);
+    }
+
+    if (seg[1] === "streamers" && method === "GET" && seg[2]) {
+      const slug = seg[2];
+      const rec = await getStreamer(slug);
+      if (!rec) return TEXT("Not Found", 404);
+      return JSONH(rec);
+    }
+
+    if (seg[1] === "streamers" && method === "POST" && !seg[2]) {
+      if (method === "POST") {
+        const {
+          slug,
+          displayText,
+          discordGuildId,
+          discordRoleId,
+          discordBotToken,
+          broadcaster_user_id, // opsiyonel cache
+          password,
+        } = await safeJsonReq(request);
+
+        if (env.ADMIN_PASSWORD && password !== env.ADMIN_PASSWORD)
+          return JSONH({ error: "Unauthorized" }, 401);
+        if (!slug || !displayText)
+          return JSONH({ error: "slug & displayText required" }, 400);
+
+        const rec = {
+          slug: String(slug),
+          displayText: String(displayText),
+          discordGuildId: discordGuildId ? String(discordGuildId) : null,
+          discordRoleId: discordRoleId ? String(discordRoleId) : null,
+          discordBotToken: discordBotToken ? String(discordBotToken) : null,
+          broadcaster_user_id: broadcaster_user_id
+            ? String(broadcaster_user_id)
+            : null,
+          updatedAt: new Date().toISOString(),
+        };
+        await kv.put(`streamer:${rec.slug}`, JSON.stringify(rec));
+        return JSONH({ ok: true, streamer: rec });
+      }
+    }
+
+    // OAuth redirect
+    if (seg[1] === "auth" && seg[2] === "redirect" && seg[3]) {
+      const provider = seg[3];
+      const streamer = url.searchParams.get("streamer");
+      if (!streamer) return TEXT("streamer query param required", 400);
+
+      const state = { streamer, random: crypto.randomUUID() };
+      let authUrl;
+
+      if (provider === "discord") {
+        authUrl = new URL("https://discord.com/api/oauth2/authorize");
+        authUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID);
+        authUrl.searchParams.set("redirect_uri", `${env.APP_URL}/api/auth/callback/discord`);
+        authUrl.searchParams.set("scope", "identify guilds.members.read");
+        authUrl.searchParams.set("response_type", "code");
+        authUrl.searchParams.set("state", state.random);
+      } else if (provider === "kick") {
+        const verifier = generateCodeVerifier();
+        const challenge = await generateCodeChallenge(verifier);
+        state.codeVerifier = verifier;
+
+        authUrl = new URL("https://id.kick.com/oauth/authorize");
+        authUrl.searchParams.set("client_id", env.KICK_CLIENT_ID);
+        authUrl.searchParams.set("redirect_uri", `${env.APP_URL}/api/auth/callback/kick`);
+        // sadece viewer bilgisi lazım
+        authUrl.searchParams.set("scope", "user:read");
+        authUrl.searchParams.set("response_type", "code");
+        authUrl.searchParams.set("code_challenge", challenge);
+        authUrl.searchParams.set("code_challenge_method", "S256");
+        authUrl.searchParams.set("state", state.random);
+      } else {
+        return TEXT("Unsupported provider", 400);
+      }
+
+      const cookie = `oauth_state=${encodeURIComponent(JSON.stringify(state))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=900`;
+
+      return new Response(null, {
+        status: 302,
+        headers: { Location: authUrl.toString(), "Set-Cookie": cookie },
+      });
+    }
+
+    // OAuth callback
+    if (seg[1] === "auth" && seg[2] === "callback" && seg[3]) {
+      const provider = seg[3];
+      const code = url.searchParams.get("code");
+      const stateParam = url.searchParams.get("state");
+      if (!code || !stateParam) return TEXT("HATA ADIM 1: code/state eksik", 400);
+
+      const cookie = request.headers.get("Cookie");
+      const stored = cookie
+        ? decodeURIComponent(cookie.match(/oauth_state=([^;]+)/)?.[1] || "")
+        : null;
+      if (!stored) return TEXT("HATA ADIM 2: Güvenlik çerezi yok", 400);
+
+      const parsed = JSON.parse(stored);
+      if (stateParam !== parsed.random) return TEXT("HATA ADIM 3: CSRF state eşleşmiyor", 403);
+
+      // token
+      let tokenData;
+      try {
+        tokenData = await exchangeCodeForToken(
+          provider,
+          code,
+          parsed.codeVerifier,
+          env
+        );
+      } catch (e) {
+        return TEXT(
+          `HATA ADIM 4: Token alımı başarısız.\n\nDetay:\n${e.message}`,
+          500
+        );
+      }
+
+      // abonelik kontrolü
+      let isSubscribed = false;
+      try {
+        const streamerSlug = parsed.streamer;
+
+        // Discord rol kontrolü (opsiyonel, KV'de varsa)
+        const rec = await getStreamer(streamerSlug);
+        if (rec?.discordGuildId && rec?.discordRoleId && rec?.discordBotToken && provider === "discord") {
+          isSubscribed = await discordHasRole(
+            env,
+            tokenData.access_token,
+            rec.discordGuildId,
+            rec.discordRoleId,
+            rec.discordBotToken
+          );
+        } else {
+          // Kick abonelik doğrulama
+          const result = await checkKickSubscriptionViewer(
+            tokenData.access_token,
+            streamerSlug
+          );
+          isSubscribed = !!result.subscribed;
+        }
+      } catch (e) {
+        return TEXT(
+          `HATA ADIM 5: Abonelik kontrolü başarısız.\n\nDetay:\n${e.message}`,
+          500
+        );
+      }
+
+      // ---- username param (optional): show on UI without exposing tokens ----
+      let __usernameParam = null;
+      try {
+        if (provider === "kick") {
+          const __viewer = await getKickViewer(tokenData.access_token);
+          __usernameParam = __viewer?.username || null;
+        } else if (provider === "discord") {
+          const __du = await fetch("https://discord.com/api/users/@me", {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` }
+          });
+          if (__du.ok) {
+            const __me = await __du.json();
+            __usernameParam = __me.global_name || __me.username || null;
+          }
+        }
+      } catch (_) {
+        // ignore – username is optional
+      }
+
+      const redir = new URL(`/${parsed.streamer}`, env.APP_URL);
+      redir.searchParams.set("subscribed", String(isSubscribed));
+      redir.searchParams.set("provider", provider);
+      if (__usernameParam) redir.searchParams.set("username", __usernameParam);
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: redir.toString(),
+          "Set-Cookie": "oauth_state=; HttpOnly; Path=/; Max-Age=0",
+        },
+      });
+    }
+
+    // unknown /api
     return TEXT("Not Found", 404);
   } catch (err) {
     console.error("KRITIK HATA:", err);
@@ -512,4 +518,4 @@ async function handleRequest(context) {
       500
     );
   }
-}
+};
