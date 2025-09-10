@@ -16,6 +16,7 @@
             background-position: center;
             background-attachment: fixed;
             background-color: #000000;
+            transition: background-image 0.5s ease-in-out;
         }
         .btn-press:active { transform: scale(0.98); }
         .page { display: none; }
@@ -32,7 +33,7 @@
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(83, 252, 24, 0.2);
-            box-shadow: 0 0 25px rgba(83, 252, 24, 0.1);
+            box-shadow: 0 0 35px rgba(83, 252, 24, 0.1), inset 0 0 10px rgba(83, 252, 24, 0.05);
         }
         .status-badge {
             display: inline-flex;
@@ -46,7 +47,7 @@
         .status-badge-red { background-color: rgba(220, 38, 38, 0.2); color: #f87171; border-color: rgba(220, 38, 38, 0.5); }
         .status-badge-green { background-color: rgba(34, 197, 94, 0.2); color: #4ade80; border-color: rgba(34, 197, 94, 0.5); }
         .font-mono { font-family: 'Roboto Mono', monospace; }
-        
+        #toast.show { opacity: 1; transform: translateY(0); }
         /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: rgba(17, 24, 39, 0.5); }
@@ -54,34 +55,26 @@
         ::-webkit-scrollbar-thumb:hover { background: #49e015; }
     </style>
 </head>
-<body class="text-gray-200 flex items-center justify-center min-h-screen p-4">
+<body class="text-gray-200 flex flex-col items-center justify-center min-h-screen p-4">
 
-    <div id="main-container" class="w-full">
+    <div id="main-container" class="w-full max-w-2xl mx-auto">
         <!-- Ana Sayfa -->
         <div id="home-page" class="page active justify-center">
-            <div class="w-full max-w-lg mx-auto">
-                <div class="main-card rounded-2xl p-8 text-center">
-                    <h1 class="text-4xl font-bold text-white mb-2">Hoş Geldiniz</h1>
-                    <p class="text-gray-300 mb-8">Bu platform, favori yayıncılarınızı desteklemeniz için tasarlandı.</p>
-                    <p class="text-sm text-gray-400">Görüntülemek istediğiniz yayıncının adresine gidin. Örn: site.com/yayıncıadı</p>
-                </div>
+            <div class="main-card rounded-2xl p-8 text-center">
+                <h1 class="text-4xl font-bold text-white mb-2">Hoş Geldiniz</h1>
+                <p class="text-gray-300 mb-8">Bu platform, favori yayıncılarınızı desteklemeniz için tasarlandı.</p>
+                <p class="text-sm text-gray-400">Görüntülemek istediğiniz yayıncının adresine gidin. Örn: site.com/yayıncıadı</p>
             </div>
         </div>
         
-        <!-- Ana Layout (Logo + Kart) -->
-        <div id="app-layout" class="page justify-center items-center w-full flex-col lg:flex-row gap-8 lg:gap-16">
-            <!-- Logo -->
-            <div class="flex-shrink-0">
-                <img src="https://i.ibb.co/68q1vW0/doxish-logo-mmxxiii.png" alt="Doxish Logo" class="w-48 h-auto md:w-56 lg:w-64">
-            </div>
-            
-            <!-- Kartlar -->
-            <div class="w-full max-w-lg">
-                <!-- Yayıncı Sayfası -->
-                <div id="streamer-page" class="page">
+        <!-- Yayıncı & Admin Sayfaları -->
+        <div id="content-page" class="page justify-center">
+            <div class="w-full">
+                <!-- Yayıncı Kartı -->
+                <div id="streamer-card" class="hidden">
                     <div class="main-card rounded-2xl p-8 text-center w-full">
-                        <h1 id="streamer-name" class="text-3xl font-bold text-white mb-1"></h1>
-                        <p id="display-text" class="text-gray-300 mb-6 text-md"></p>
+                        <h1 id="streamer-title" class="text-4xl font-bold text-white mb-2"></h1>
+                        <p id="streamer-subtitle" class="text-gray-300 mb-8 text-lg"></p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
                             <button id="discord-login" class="w-full flex items-center justify-center bg-[#5865F2] hover:bg-[#4f5bda] text-white font-bold py-3 px-4 rounded-lg transition-all transform hover:scale-105 btn-press">
@@ -93,29 +86,19 @@
                                 <span>Kick ile Giriş Yap</span>
                             </button>
                         </div>
-
                         <div class="space-y-3 mt-6 text-left">
-                            <!-- Discord Status -->
-                            <div id="discord-status-container" class="space-y-2 hidden">
-                                <div id="discord-status-badges" class="flex flex-wrap gap-2"></div>
-                                <div id="discord-user-info" class="text-sm text-gray-400 font-mono hidden"></div>
-                            </div>
-                            <!-- Kick Status -->
-                            <div id="kick-status-container" class="space-y-2 hidden">
-                                <div id="kick-status-badges" class="flex flex-wrap gap-2"></div>
-                                <div id="kick-user-info" class="text-sm text-gray-400 font-mono hidden"></div>
-                            </div>
+                            <div id="discord-status-container" class="space-y-2"></div>
+                            <div id="kick-status-container" class="space-y-2"></div>
                         </div>
-
                         <div id="result-message" class="mt-8 hidden">
                             <div class="bg-yellow-800/50 text-yellow-200 p-3 rounded-lg">Sayfayı kapatabilirsiniz. Teşekkürler :)</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Admin Giriş Ekranı ve Paneli (Aynı kart içinde) -->
-                <div id="admin-page-container" class="w-full">
-                    <div id="admin-login-page" class="page main-card rounded-2xl p-8 w-full">
+                <!-- Admin Kartı -->
+                <div id="admin-card" class="hidden">
+                     <div id="admin-login-page" class="page main-card rounded-2xl p-8 w-full">
                         <h1 class="text-3xl font-bold text-white mb-6 text-center">Admin Girişi</h1>
                         <form id="admin-login-form">
                             <input type="password" id="admin-password-input" placeholder="••••••••••••" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500 mb-4 text-center text-lg tracking-widest">
@@ -132,29 +115,30 @@
                             <h2 class="text-xl font-semibold mb-3">Yeni Yayıncı Ekle</h2>
                             <form id="add-streamer-form" class="space-y-4">
                                 <input type="text" name="slug" placeholder="Yayıncı URL Adı (örn: elraenn)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <input type="text" name="displayText" placeholder="Ekranda görünecek yazı" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <h3 class="text-lg font-medium text-gray-400 pt-2">Discord Ayarları (İsteğe Bağlı)</h3>
-                                <input type="text" name="discordGuildId" placeholder="Discord Sunucu ID" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <input type="text" name="discordRoleId" placeholder="Discord Abone Rol ID" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <input type="text" name="discordBotToken" placeholder="Discord Bot Token" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <input type="text" name="title" placeholder="Başlık (örn: Elraenn Abonelik Doğrulama)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <input type="text" name="subtitle" placeholder="Alt Başlık (örn: Kick & Discord)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <input type="text" name="customBackgroundUrl" placeholder="Özel Arkaplan Linki (İsteğe Bağlı)" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
                                 
                                 <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg btn-press">Yayıncıyı Ekle</button>
                             </form>
                         </div>
                         <div class="mt-6">
                             <h2 class="text-xl font-semibold mb-3">Eklenmiş Yayıncılar</h2>
-                            <div id="streamer-list-container" class="bg-black/20 border border-gray-700 p-4 rounded-lg space-y-3 min-h-[100px]">
-                                <!-- Yayıncılar buraya eklenecek -->
+                            <div id="streamer-list-container" class="bg-black/20 border border-gray-700 p-4 rounded-lg space-y-3 min-h-[100px] max-h-64 overflow-y-auto">
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        
-        <p class="text-center text-gray-500 text-xs mt-8">2025 - Doxish tarafından bu Dünya'da sevgiyle yapıldı. <br>Discord İletişim: ".doxish"</p>
     </div>
     
+    <div class="w-full max-w-2xl mx-auto mt-6">
+        <div class="main-card rounded-2xl p-3 text-center">
+            <p class="text-gray-400 text-xs">2025 - Doxish tarafından bu Dünya'da sevgiyle yapıldı. | Discord İletişim: ".doxish"</p>
+        </div>
+    </div>
+
     <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 border border-gray-700 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 translate-y-3 transition-all duration-300"></div>
 
     <script src="/script.js"></script>
