@@ -3,128 +3,167 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yayıncı Abonelik Doğrulama</title>
+    <title>Yayıncı Doğrulama</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
             background-image: url('https://i.ibb.co/7Nbkyyss/Untitled-design.png');
             background-size: cover;
             background-position: center;
+            background-repeat: no-repeat;
             background-attachment: fixed;
-            background-color: #000000;
-            transition: background-image 0.5s ease-in-out;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
-        .btn-press:active { transform: scale(0.98); }
-        .page { display: none; }
-        .page.active { display: flex; animation: fadeIn 0.5s; }
+        .glass-card {
+            background: rgba(16, 16, 16, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(43, 255, 0, 0.1);
+        }
+        .btn-press:active {
+            transform: scale(0.98);
+        }
+        .page {
+            display: none;
+            animation: fadeIn 0.5s ease-in-out;
+            width: 100%;
+        }
+        .page.active {
+            display: flex;
+        }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .loader {
-            border: 4px solid #4a5568; border-top: 4px solid #53FC18;
-            border-radius: 50%; width: 24px; height: 24px;
-            animation: spin 1s linear infinite; margin: 0 auto;
+            border: 4px solid #333;
+            border-top: 4px solid #2BFF00;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .main-card {
-            background-color: rgba(17, 24, 39, 0.8);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(83, 252, 24, 0.2);
-            box-shadow: 0 0 35px rgba(83, 252, 24, 0.1), inset 0 0 10px rgba(83, 252, 24, 0.05);
+        
+        .toast {
+            visibility: hidden;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease-in-out;
         }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+            visibility: visible;
+        }
+         /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            animation: fadeInModal 0.3s ease-out;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .modal-content {
+            margin: auto;
+            animation: slideInModal 0.3s ease-out;
+        }
+        @keyframes fadeInModal { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes slideInModal { from { transform: translateY(-30px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
         .status-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            border: 1px solid;
+            @apply text-xs font-bold mr-2 px-2.5 py-1 rounded-full;
         }
-        .status-badge-red { background-color: rgba(220, 38, 38, 0.2); color: #f87171; border-color: rgba(220, 38, 38, 0.5); }
-        .status-badge-green { background-color: rgba(34, 197, 94, 0.2); color: #4ade80; border-color: rgba(34, 197, 94, 0.5); }
-        .font-mono { font-family: 'Roboto Mono', monospace; }
-        #toast.show { opacity: 1; transform: translateY(0); }
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: rgba(17, 24, 39, 0.5); }
-        ::-webkit-scrollbar-thumb { background: #53FC18; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #49e015; }
+        .status-badge-green {
+            @apply bg-green-900 text-green-300;
+        }
+        .status-badge-red {
+            @apply bg-red-900 text-red-300;
+        }
     </style>
 </head>
-<body class="text-gray-200 flex flex-col items-center justify-center min-h-screen p-4">
+<body class="text-gray-200">
 
-    <div id="main-container" class="w-full max-w-2xl mx-auto">
-        <!-- Ana Sayfa -->
-        <div id="home-page" class="page active justify-center">
-            <div class="main-card rounded-2xl p-8 text-center">
-                <h1 class="text-4xl font-bold text-white mb-2">Hoş Geldiniz</h1>
-                <p class="text-gray-300 mb-8">Bu platform, favori yayıncılarınızı desteklemeniz için tasarlandı.</p>
-                <p class="text-sm text-gray-400">Görüntülemek istediğiniz yayıncının adresine gidin. Örn: site.com/yayıncıadı</p>
+    <!-- Ana Sayfa (Yönlendirme) -->
+    <div id="home-page" class="page items-center justify-center min-h-screen w-full">
+        <div class="text-center">
+             <div class="glass-card rounded-2xl shadow-2xl p-8 text-center w-full max-w-md">
+                 <h1 class="text-4xl font-extrabold text-white mb-2">Hoş Geldiniz</h1>
+                <p class="text-gray-400">Bu platform, favori yayıncılarınızı desteklemeniz için tasarlandı.</p>
             </div>
         </div>
+    </div>
+    
+    <!-- İçerik Sayfası (Yayıncı ve Admin) -->
+    <div id="content-page" class="page items-center justify-center min-h-screen w-full p-4">
         
-        <!-- Yayıncı & Admin Sayfaları -->
-        <div id="content-page" class="page justify-center">
-            <div class="w-full">
-                <!-- Yayıncı Kartı -->
-                <div id="streamer-card" class="hidden">
-                    <div class="main-card rounded-2xl p-8 text-center w-full">
-                        <h1 id="streamer-title" class="text-4xl font-bold text-white mb-2"></h1>
-                        <p id="streamer-subtitle" class="text-gray-300 mb-8 text-lg"></p>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
-                            <button id="discord-login" class="w-full flex items-center justify-center bg-[#5865F2] hover:bg-[#4f5bda] text-white font-bold py-3 px-4 rounded-lg transition-all transform hover:scale-105 btn-press">
-                                <svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.369a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.369-.42.869-.599 1.239a18.19 18.19 0 00-3.675 0c-.18-.37-.39-.87-.599-1.239a.074.074 0 00-.079-.037A19.718 19.718 0 003.683 4.37a.074.074 0 00-.037.079C3.725 6.459 4.348 9.619 5.578 11.839a.074.074 0 00.046.057 16.571 16.571 0 005.276 2.269.074.074 0 00.065-.018 13.712 13.712 0 00.118-.099.074.074 0 00-.001-.118 12.19 12.19 0 01-1.424-2.224.074.074 0 01.018-.1c.32-.2.63-.4.92-.619a.074.074 0 01.079.009c.47.339.97.619 1.482.869a.074.074 0 01.018.1 12.238 12.238 0 01-1.424 2.224.074.074 0 00-.001.118c.04.03.08.06.118.099a.074.074 0 00.065.018 16.571 16.571 0 005.276-2.269.074.074 0 00.046-.057c1.23-2.22 1.853-5.38 1.932-7.39a.074.074 0 00-.037-.08zM8.03 10.149c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698s-.76 1.698-1.698 1.698zm7.94 0c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698.001.938-.76 1.698-1.698 1.698z"/></svg>
-                                <span>Discord ile Giriş Yap</span>
-                            </button>
-                            <button id="kick-login" class="w-full flex items-center justify-center bg-[#53FC18] hover:bg-[#49e015] text-black font-bold py-3 px-4 rounded-lg transition-all transform hover:scale-105 btn-press">
-                                <svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 24 24"><path d="M19.982 3H4.018C3.456 3 3 3.456 3 4.018v15.964C3 20.544 3.456 21 4.018 21h15.964c.562 0 1.018-.456 1.018-1.018V4.018C21 3.456 20.544 3 19.982 3zM9.133 8.016h2.153v4.298H9.133V8.016zm5.886 4.904-2.864-2.1V8.016l2.864-2.1v7.008z"/></svg>
-                                <span>Kick ile Giriş Yap</span>
-                            </button>
-                        </div>
-                        <div class="space-y-3 mt-6 text-left">
-                            <div id="discord-status-container" class="space-y-2"></div>
-                            <div id="kick-status-container" class="space-y-2"></div>
-                        </div>
-                        <div id="result-message" class="mt-8 hidden">
-                            <div class="bg-yellow-800/50 text-yellow-200 p-3 rounded-lg">Sayfayı kapatabilirsiniz. Teşekkürler :)</div>
-                        </div>
-                    </div>
+        <!-- YAYINCI KARTI -->
+        <div id="streamer-card" class="w-full max-w-md" style="display: none;">
+            <div class="glass-card rounded-2xl shadow-2xl p-8 text-center">
+                <h1 id="streamer-title" class="text-4xl font-extrabold text-white mb-2"></h1>
+                <p id="streamer-subtitle" class="text-gray-400 mb-8"></p>
+                
+                <div class="space-y-4 mb-6">
+                    <button id="kick-login" class="w-full flex items-center justify-center bg-green-500/80 hover:bg-green-500/100 text-white font-bold py-3 px-4 rounded-lg transition-all transform btn-press">
+                        <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M19.982 3H4.018C3.456 3 3 3.456 3 4.018v15.964C3 20.544 3.456 21 4.018 21h15.964c.562 0 1.018-.456 1.018-1.018V4.018C21 3.456 20.544 3 19.982 3zM9.133 8.016h2.153v4.298H9.133V8.016zm5.886 4.904-2.864-2.1V8.016l2.864-2.1v7.008z"/></svg>
+                        <span>Kick ile Giriş Yap</span>
+                    </button>
+                    <button id="discord-login" class="w-full flex items-center justify-center bg-blue-600/80 hover:bg-blue-600/100 text-white font-bold py-3 px-4 rounded-lg transition-all transform btn-press">
+                        <svg class="w-6 h-6 mr-3" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.369a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.369-.42.869-.599 1.239a18.19 18.19 0 00-3.675 0c-.18-.37-.39-.87-.599-1.239a.074.074 0 00-.079-.037A19.718 19.718 0 003.683 4.37a.074.074 0 00-.037.079C3.725 6.459 4.348 9.619 5.578 11.839a.074.074 0 00.046.057 16.571 16.571 0 005.276 2.269.074.074 0 00.065-.018 13.712 13.712 0 00.118-.099.074.074 0 00-.001-.118 12.19 12.19 0 01-1.424-2.224.074.074 0 01.018-.1c.32-.2.63-.4.92-.619a.074.074 0 01.079.009c.47.339.97.619 1.482.869a.074.074 0 01.018.1 12.238 12.238 0 01-1.424 2.224.074.074 0 00-.001.118c.04.03.08.06.118.099a.074.074 0 00.065.018 16.571 16.571 0 005.276-2.269.074.074 0 00.046-.057c1.23-2.22 1.853-5.38 1.932-7.39a.074.074 0 00-.037-.08zM8.03 10.149c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698s-.76 1.698-1.698 1.698zm7.94 0c-.938 0-1.698-.76-1.698-1.698s.76-1.698 1.698-1.698c.938 0 1.698.76 1.698 1.698.001.938-.76 1.698-1.698 1.698z"/></svg>
+                        <span>Discord ile Giriş Yap</span>
+                    </button>
                 </div>
+                <div id="status-container" class="space-y-3">
+                    <!-- Durumlar buraya JS ile eklenecek -->
+                </div>
+                 <p id="result-message" class="hidden mt-6 text-lg text-green-300 font-semibold transition-opacity duration-300">Sayfayı kapatabilirsiniz. Teşekkürler :)</p>
+            </div>
+        </div>
 
-                <!-- Admin Kartı -->
-                <div id="admin-card" class="hidden">
-                     <div id="admin-login-page" class="page main-card rounded-2xl p-8 w-full">
-                        <h1 class="text-3xl font-bold text-white mb-6 text-center">Admin Girişi</h1>
-                        <form id="admin-login-form">
-                            <input type="password" id="admin-password-input" placeholder="••••••••••••" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500 mb-4 text-center text-lg tracking-widest">
-                            <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg btn-press">Giriş Yap</button>
-                        </form>
+        <!-- ADMIN KARTI -->
+        <div id="admin-card" class="w-full max-w-5xl" style="display: none;">
+            <div id="admin-login-page" class="page items-center justify-center w-full">
+                 <div class="glass-card rounded-2xl shadow-2xl p-8 text-center w-full max-w-sm">
+                    <h1 class="text-3xl font-bold text-white mb-6">Yönetici Girişi</h1>
+                    <form id="admin-login-form">
+                        <input type="password" id="admin-password-input" placeholder="••••••••••" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500 mb-4" required>
+                        <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-4 rounded-lg btn-press transition-colors">Giriş Yap</button>
+                    </form>
+                </div>
+            </div>
+
+            <div id="admin-panel-page" class="page flex-col w-full">
+                <div class="glass-card rounded-2xl shadow-2xl p-8 w-full">
+                    <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
+                         <h1 class="text-4xl font-extrabold text-white">Yönetim Paneli</h1>
+                         <button id="logout-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg btn-press transition-colors">Çıkış Yap</button>
                     </div>
 
-                    <div id="admin-panel-page" class="page main-card rounded-2xl p-8 w-full">
-                         <div class="flex justify-between items-center mb-6">
-                            <h1 class="text-3xl font-bold text-white">Yönetim Paneli</h1>
-                            <button id="logout-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg btn-press">Çıkış Yap</button>
-                        </div>
-                        <div class="bg-black/20 border border-gray-700 p-4 rounded-lg mb-6">
-                            <h2 class="text-xl font-semibold mb-3">Yeni Yayıncı Ekle</h2>
-                            <form id="add-streamer-form" class="space-y-4">
-                                <input type="text" name="slug" placeholder="Yayıncı URL Adı (örn: elraenn)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <input type="text" name="title" placeholder="Başlık (örn: Elraenn Abonelik Doğrulama)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <input type="text" name="subtitle" placeholder="Alt Başlık (örn: Kick & Discord)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <input type="text" name="customBackgroundUrl" placeholder="Özel Arkaplan Linki (İsteğe Bağlı)" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
-                                
-                                <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg btn-press">Yayıncıyı Ekle</button>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div>
+                            <h2 class="text-2xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Yeni Yayıncı Ekle</h2>
+                            <form id="add-streamer-form" class="space-y-4 mt-4">
+                                <input type="text" name="slug" placeholder="Yayıncı URL Adı (örn: elraenn)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                                <input type="text" name="title" placeholder="Başlık (örn: Elraenn Abonelik)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                                <input type="text" name="subtitle" placeholder="Alt Başlık (örn: Kick & Discord Doğrulama)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                                <input type="url" name="customBackgroundUrl" placeholder="Özel Arkaplan Linki (İsteğe Bağlı)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <input type="url" name="botghostWebhookUrl" placeholder="BotGhost Webhook URL (Discord için)" class="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-4 rounded-lg btn-press transition-colors">Yayıncıyı Ekle</button>
                             </form>
                         </div>
-                        <div class="mt-6">
-                            <h2 class="text-xl font-semibold mb-3">Eklenmiş Yayıncılar</h2>
-                            <div id="streamer-list-container" class="bg-black/20 border border-gray-700 p-4 rounded-lg space-y-3 min-h-[100px] max-h-64 overflow-y-auto">
+                        <div>
+                            <h2 class="text-2xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Eklenmiş Yayıncılar</h2>
+                            <div id="streamer-list-container" class="space-y-3 max-h-[400px] overflow-y-auto pr-2 mt-4">
                             </div>
                         </div>
                     </div>
@@ -132,14 +171,46 @@
             </div>
         </div>
     </div>
-    
-    <div class="w-full max-w-2xl mx-auto mt-6">
-        <div class="main-card rounded-2xl p-3 text-center">
-            <p class="text-gray-400 text-xs">2025 - Doxish tarafından bu Dünya'da sevgiyle yapıldı. | Discord İletişim: ".doxish"</p>
+
+     <!-- Footer -->
+    <div class="fixed bottom-0 left-0 right-0 p-4 flex justify-center pointer-events-none">
+        <div class="glass-card text-center text-xs text-gray-400 py-2 px-4 rounded-full pointer-events-auto">
+            2025 - Doxish tarafından bu Dünya'da sevgiyle yapıldı. | Discord İletişim: ".doxish"
         </div>
     </div>
+    
+    <!-- Toast Bildirimi -->
+    <div id="toast" class="toast fixed bottom-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg border">Mesaj</div>
 
-    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 border border-gray-700 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 translate-y-3 transition-all duration-300"></div>
+    <!-- Düzenleme Modalı -->
+    <div id="edit-modal" class="modal items-center justify-center p-4">
+        <div class="modal-content glass-card rounded-2xl shadow-2xl p-8 w-full max-w-lg">
+            <h2 class="text-2xl font-semibold mb-4 text-white">Yayıncıyı Düzenle</h2>
+            <form id="edit-streamer-form" class="space-y-4">
+                <input type="hidden" name="slug">
+                <div>
+                    <label class="text-sm font-medium text-gray-400">Başlık</label>
+                    <input type="text" name="title" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-gray-400">Alt Başlık</label>
+                    <input type="text" name="subtitle" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-gray-400">Özel Arkaplan Linki</label>
+                    <input type="url" name="customBackgroundUrl" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-gray-400">BotGhost Webhook URL</label>
+                    <input type="url" name="botghostWebhookUrl" class="mt-1 w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                </div>
+                <div class="flex gap-4 pt-4">
+                    <button type="button" id="cancel-edit-btn" class="w-full bg-gray-600/50 hover:bg-gray-600/80 text-white font-bold py-3 px-4 rounded-lg btn-press transition-colors">İptal</button>
+                    <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-4 rounded-lg btn-press transition-colors">Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script src="/script.js"></script>
 </body>
