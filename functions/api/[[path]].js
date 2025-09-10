@@ -1,10 +1,9 @@
 // functions/api/[[path]].js
 /**
- * Kick/Discord Abonelik Doğrulama & Webhook Sistemi – v15.0 (Nihai Sürüm)
- * Bu backend, tüm hataları giderilmiş, en güncel ve en sağlam sürümüdür.
- * - "Kanal bilgisi alınamadı" hatası, v2 ve v1 API'lerini deneyen bir fallback ile çözüldü.
- * - Yayıncıları güncellemek için PUT metodu içerir.
- * - BotGhost webhook mantığıyla tam uyumludur.
+ * Kick/Discord Abonelik Doğrulama & Webhook Sistemi – v15.1 (Nihai Abonelik Düzeltmesi)
+ * Bu backend, abonelik tespit mantığını, 'expires_at' verisini daha sağlam bir şekilde
+ * arayacak şekilde güncelleyerek, abone olan kullanıcıların yanlışlıkla "abone değil"
+ * olarak işaretlenmesi sorununu çözer.
  */
 
 export async function onRequest(context) {
@@ -39,7 +38,6 @@ async function getKickViewer(accessToken) {
 
 async function getChannelBySlug(slug) {
     const headers = { Accept: "application/json", "User-Agent": UA, Referer: `https://kick.com/${slug}`, Origin: "https://kick.com" };
-    // Önce v2'yi dene
     const v2Url = `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`;
     let response = await fetch(v2Url, { headers });
     if (response.ok) {
@@ -47,7 +45,6 @@ async function getChannelBySlug(slug) {
         const channelId = j?.id ?? j?.chatroom?.channel_id;
         if (channelId) return { channelId };
     }
-    // v2 başarısız olursa, v1'i dene
     const v1Url = `https://kick.com/api/v1/channels/${encodeURIComponent(slug)}`;
     response = await fetch(v1Url, { headers });
     if (!response.ok) throw new Error(`Kanal bilgisi alınamadı (v1 & v2 denendi). Son Hata (v1, ${response.status})`);
@@ -65,17 +62,24 @@ async function getIdentityByUserId(channelId, userId, refererSlug) {
   return r.json();
 }
 
-function hasSubscription(identityData) {
-    if (!identityData) return false;
-    const expires_at = identityData?.subscription?.expires_at ?? identityData?.subscriber?.expires_at;
-    return !!expires_at;
+// DÜZELTME: Abonelik kontrol mantığı, daha sağlam olan 'extractSubscriptionEvidence' ile değiştirildi.
+function extractSubscriptionEvidence(payload) {
+    if (!payload) return { hasSubscription: false };
+    const identity = payload?.identity || payload?.user_identity || payload;
+    const expires_at = identity?.subscription?.expires_at ?? identity?.subscriber?.expires_at ?? identity?.badges?.subscriber?.expires_at ?? payload?.expires_at ?? null;
+
+    if (typeof expires_at === "string" && expires_at.trim().length > 0) {
+        return { hasSubscription: true, source: "expires_at", expires_at };
+    }
+    return { hasSubscription: false, source: "none" };
 }
 
 async function checkKickSubscription(accessToken, streamerSlug) {
     const viewer = await getKickViewer(accessToken);
     const { channelId } = await getChannelBySlug(streamerSlug);
     const identityData = await getIdentityByUserId(channelId, viewer.id, streamerSlug);
-    return { subscribed: hasSubscription(identityData), viewer };
+    const evidence = extractSubscriptionEvidence(identityData);
+    return { subscribed: evidence.hasSubscription, viewer };
 }
 
 /* -------------------- Discord API Logic -------------------- */
