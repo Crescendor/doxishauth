@@ -1,9 +1,9 @@
 /**
- * Gelişmiş Frontend Kodu v14.0 - "Cayır Cayır" Admin Paneli & Webhook
+ * Gelişmiş Frontend Kodu v15.0 - "Cayır Cayır" Admin Paneli & Yönlendirme Düzeltmesi
  * Bu kod, v14.0 backend ve yeni geniş tasarımla tam uyumlu çalışır.
- * - Geniş admin paneli ve düzenleme modalı için tam destek.
- * - BotGhost webhook URL'i girilmişse Discord'u doğrular, girilmemişse sadece Kick'i doğrular.
- * - Kalıcı veri saklama (localStorage) ile çoklu platform durum yönetimi.
+ * - Yönlendirme sorunu DÜZELTİLDİ: Yayıncı bulunamazsa artık ana sayfaya atmak yerine hata mesajı gösterir.
+ * - Admin paneline "Listeyi Yenile" butonu eklendi ve işlevselliği tanımlandı.
+ * - Düzenleme modalı ve tüm yeni arayüz elemanlarını yönetir.
  */
 document.addEventListener("DOMContentLoaded", () => {
     const pages = {
@@ -38,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const showToast = (message, isError = false) => {
         const toast = document.getElementById("toast");
         toast.textContent = message;
-        toast.className = `fixed bottom-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg border transition-all duration-300 opacity-0 translate-y-3 ${isError ? 'bg-red-600/80 border-red-500' : 'bg-gray-800/80 border-gray-700'}`;
+        toast.className = `toast fixed bottom-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg border ${isError ? 'bg-red-600/80 border-red-500' : 'bg-gray-800/80 border-gray-700'}`;
         
         void toast.offsetWidth; // Reflow
         toast.classList.add("show");
@@ -58,7 +58,15 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (path) {
             try {
                 const response = await fetch(`/api/streamers/${path}`);
-                if (!response.ok) { window.location.pathname = '/'; return; }
+                // DÜZELTME: Yayıncı bulunamazsa ana sayfaya yönlendirmek yerine hata göster.
+                if (!response.ok) {
+                    showToast(`'${path}' adlı yayıncı bulunamadı.`, true);
+                    document.body.style.backgroundImage = defaultBg;
+                    showPage("home");
+                    // URL'i temizle ki kullanıcı F5 yaparsa ana sayfada kalsın.
+                    window.history.replaceState({}, document.title, `/`);
+                    return;
+                }
                 const streamer = await response.json();
                 
                 document.getElementById("streamer-title").textContent = streamer.title;
@@ -67,8 +75,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 
                 document.getElementById("kick-login").onclick = () => window.location.href = `/api/auth/redirect/kick?streamer=${streamer.slug}`;
                 
-                const discordButton = document.getElementById("discord-login");
                 // DÜZELTME: Discord butonu her zaman görünür.
+                const discordButton = document.getElementById("discord-login");
                 discordButton.style.display = "flex";
                 discordButton.onclick = () => window.location.href = `/api/auth/redirect/discord?streamer=${streamer.slug}`;
                 
@@ -77,7 +85,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             } catch (error) {
                 console.error("Yayıncı verisi alınırken hata:", error);
-                window.location.pathname = '/';
+                showToast("Bir ağ hatası oluştu, lütfen tekrar deneyin.", true);
+                showPage("home");
             }
         } else {
             document.body.style.backgroundImage = defaultBg;
@@ -123,24 +132,28 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const updateUI = (data) => {
-        const discordContainer = document.getElementById("discord-status-container");
-        discordContainer.innerHTML = '';
-        if (data.discord) {
-            discordContainer.appendChild(createBadge('Discord Bağlandı', true));
-        } else {
-            discordContainer.appendChild(createBadge('Discord Bağlı Değil', false));
-        }
+        const statusContainer = document.getElementById("status-container");
+        statusContainer.innerHTML = '';
 
-        const kickContainer = document.getElementById("kick-status-container");
-        kickContainer.innerHTML = '';
+        const kickBadgeContainer = document.createElement('div');
+        kickBadgeContainer.className = 'flex flex-wrap gap-2 justify-center';
         if (data.kick) {
-            kickContainer.appendChild(createBadge('Kick Bağlandı', true));
-            kickContainer.appendChild(createBadge(data.kick.subscribed ? '✓ Abone' : 'X Abone Değil', data.kick.subscribed));
+            kickBadgeContainer.appendChild(createBadge('Kick : Bağlandı', true));
+            kickBadgeContainer.appendChild(createBadge(data.kick.subscribed ? '✓ Abone' : 'X Abone Değil', data.kick.subscribed));
         } else {
-            kickContainer.appendChild(createBadge('Kick Bağlı Değil', false));
+            kickBadgeContainer.appendChild(createBadge('Kick : Bağlı Değil', false));
         }
+        statusContainer.appendChild(kickBadgeContainer);
+
+        const discordBadgeContainer = document.createElement('div');
+        discordBadgeContainer.className = 'flex flex-wrap gap-2 justify-center';
+        if (data.discord) {
+            discordBadgeContainer.appendChild(createBadge('Discord : Bağlandı', true));
+        } else {
+            discordBadgeContainer.appendChild(createBadge('Discord : Bağlı Değil', false));
+        }
+        statusContainer.appendChild(discordBadgeContainer);
         
-        // DÜZELTME: "Sayfayı kapatabilirsiniz" mesajı her iki platforma da giriş yapıldığında görünür.
         const bothChecked = data.kick && data.discord;
         document.getElementById("result-message").classList.toggle("hidden", !bothChecked);
     };
@@ -167,6 +180,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("logout-btn")?.addEventListener('click', () => {
         sessionStorage.clear();
         window.location.pathname = "/";
+    });
+
+    document.getElementById("refresh-list-btn")?.addEventListener('click', () => {
+        showToast("Liste yenileniyor...");
+        loadAdminPanel();
     });
 
     const loadAdminPanel = async () => {
