@@ -154,6 +154,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         statusContainer.appendChild(discordBadgeContainer);
         
+        // DÜZELTME: "Sayfayı kapatabilirsiniz" mesajı her iki platforma da giriş yapıldığında görünür.
         const bothChecked = data.kick && data.discord;
         document.getElementById("result-message").classList.toggle("hidden", !bothChecked);
     };
@@ -182,6 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.pathname = "/";
     });
 
+    // YENİ: Yenileme butonu için olay dinleyici
     document.getElementById("refresh-list-btn")?.addEventListener('click', () => {
         showToast("Liste yenileniyor...");
         loadAdminPanel();
