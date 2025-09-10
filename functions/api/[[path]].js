@@ -1,13 +1,13 @@
 /**
- * Kick Abonelik Doğrulama – v10.3 (expires_at-only + debug ids)
+ * Kick Abonelik Doğrulama – v10.4 (stabil)
  * Cloudflare Pages Functions (KV: STREAMERS)
  *
- * Sıra:
- *  0a) /api/v2/user/subscriptions         (Authorization, Referer)
- *  0b) /api/v2/channels/{slug}/me         (Authorization, Referer)
- *  1)  /api/v2/channels/{channelId}/users/{viewerId}/identity
- *  2)  /api/v2/channels/{slug}/users/{username}
- *  3)  /api/v2/channels/{slug}/subscribers/{username}
+ * Sıra (expires_at-only kuralıyla):
+ *  0a) GET /api/v2/user/subscriptions        (Authorization, Referer)
+ *  0b) GET /api/v2/channels/{slug}/me        (Authorization, Referer)
+ *  1)  GET /api/v2/channels/{channelId}/users/{viewerId}/identity
+ *  2)  GET /api/v2/channels/{slug}/users/{username}
+ *  3)  GET /api/v2/channels/{slug}/subscribers/{username}
  *
  * KURAL: JSON içinde herhangi derinlikte string `expires_at` bulunursa ABONE.
  *
@@ -20,15 +20,22 @@ export async function onRequest(ctx) { return handleRequest(ctx); }
 /* ---------- utils ---------- */
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
-const JSONH = (obj, status=200) => new Response(JSON.stringify(obj), { status, headers: { "Content-Type":"application/json; charset=utf-8" }});
-const TEXT  = (msg, status=400) => new Response(msg, { status, headers: { "Content-Type":"text/plain; charset=utf-8" }});
+const JSONH = (obj, status=200) =>
+  new Response(JSON.stringify(obj), { status, headers: { "Content-Type":"application/json; charset=utf-8" }});
+const TEXT  = (msg, status=400) =>
+  new Response(msg, { status, headers: { "Content-Type":"text/plain; charset=utf-8" }});
 
 async function safeJsonReq(req){
   const ct=(req.headers.get("content-type")||"").toLowerCase();
   try{
     if(ct.includes("application/json")) return await req.json();
-    const raw=await req.text();
-    try{ return JSON.parse(raw||"{}"); }catch{ return Object.fromEntries(new URLSearchParams(raw).entries()); }
+    if(ct.includes("application/x-www-form-urlencoded")){
+      const t=await req.text(); return Object.fromEntries(new URLSearchParams(t).entries());
+    }
+    if(ct.includes("multipart/form-data")){
+      const fd=await req.formData(); const o={}; for(const [k,v] of fd.entries()) o[k]=typeof v==="string"?v:(v?.name||""); return o;
+    }
+    const raw=await req.text(); try{ return JSON.parse(raw||"{}"); }catch{ return Object.fromEntries(new URLSearchParams(raw).entries()); }
   }catch{ return {}; }
 }
 async function safeText(res){ try{ return await res.text(); }catch{ return ""; } }
@@ -37,7 +44,7 @@ async function safeJsonRes(res){ const raw=await res.text(); try{ return JSON.pa
 /* ---------- pkce ---------- */
 function b64url(bytes){ let s=""; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+/g,""); }
 function generateCodeVerifier(){ return b64url(crypto.getRandomValues(new Uint8Array(32))); }
-async function generateCodeChallenge(verifier){ const d=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)); return b64url(new Uint8Array(d)); }
+async function generateCodeChallenge(v){ const d=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)); return b64url(new Uint8Array(d)); }
 
 /* ---------- headers ---------- */
 function siteHeaders(refererPathOrUrl, bearer){
@@ -99,26 +106,28 @@ async function getChannelBySlug(slug){
   return { channelId, raw:j };
 }
 
+async function getUserSubscriptions(bearer, refererSlug){
+  const r=await fetch(`https://kick.com/api/v2/user/subscriptions`, { headers: siteHeaders(refererSlug, bearer) });
+  if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
+  return { ok:true, data:await safeJsonRes(r) };
+}
 async function getChannelMe(slug, bearer){
   const r=await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}/me`, { headers: siteHeaders(slug, bearer) });
   if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
   return { ok:true, data:await safeJsonRes(r) };
 }
-
 async function getIdentityByUserId(channelId, userId, refererSlug){
   const r=await fetch(`https://kick.com/api/v2/channels/${channelId}/users/${userId}/identity`, { headers: siteHeaders(refererSlug) });
   if(r.status===404) return { ok:true, data:null };
   if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
   return { ok:true, data:await safeJsonRes(r) };
 }
-
 async function getIdentityByUsername(slug, username, refererSlug){
   const r=await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}/users/${encodeURIComponent(username)}`, { headers: siteHeaders(refererSlug) });
   if(r.status===404) return { ok:true, data:null };
   if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
   return { ok:true, data:await safeJsonRes(r) };
 }
-
 async function getSubscriberByUsername(slug, username, bearer){
   const r=await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}/subscribers/${encodeURIComponent(username)}`, { headers: siteHeaders(slug, bearer) });
   if(r.status===404) return { ok:true, data:null };
@@ -126,14 +135,11 @@ async function getSubscriberByUsername(slug, username, bearer){
   return { ok:true, data:await safeJsonRes(r) };
 }
 
-async function getUserSubscriptions(bearer, refererSlug){
-  const r=await fetch(`https://kick.com/api/v2/user/subscriptions`, { headers: siteHeaders(refererSlug, bearer) });
-  if(!r.ok) return { ok:false, status:r.status, raw:await safeText(r) };
-  return { ok:true, data:await safeJsonRes(r) };
-}
-
 /* ---------- evidence ---------- */
-function evidence(payload){ const ex=findExpiresAtDeep(payload); return ex ? { hasSubscription:true, source:"expires_at", expires_at:ex } : { hasSubscription:false, source:"none", expires_at:null }; }
+function evidence(payload){
+  const ex=findExpiresAtDeep(payload);
+  return ex ? { hasSubscription:true, source:"expires_at", expires_at:ex } : { hasSubscription:false, source:"none", expires_at:null };
+}
 
 /* ---------- main check ---------- */
 async function checkKickSubscriptionViewer(accessToken, streamerSlug){
@@ -188,13 +194,12 @@ async function checkKickSubscriptionViewer(accessToken, streamerSlug){
   return { subscribed:false, method:"none", viewerId:viewer.id, viewerUsername:viewer.username, channelId };
 }
 
-/* ---------- Discord helper (id çekmek için) ---------- */
+/* ---------- Discord helpers ---------- */
 async function getDiscordMe(accessToken){
   const r=await fetch("https://discord.com/api/users/@me",{ headers:{ Authorization:`Bearer ${accessToken}` }});
   if(!r.ok) throw new Error(`Discord /@me HTTP ${r.status}: ${await r.text()}`);
-  return r.json(); // { id, username, ... }
+  return r.json(); // { id, ... }
 }
-
 async function checkDiscordSubscription(accessToken, streamerInfo){
   const { discordGuildId, discordRoleId, discordBotToken } = streamerInfo || {};
   if(!discordGuildId || !discordRoleId || !discordBotToken) return { hasRole:false, userId:null };
@@ -232,6 +237,9 @@ async function handleRequest(context){
     const STREAMERS = env.STREAMERS;
 
     if(seg[0]==="api"){
+
+      /* health */
+      if(seg[1]==="health" && method==="GET"){ return JSONH({ ok:true, now: Date.now() }); }
 
       /* admin login */
       if(seg[1]==="login" && method==="POST"){
@@ -332,10 +340,8 @@ async function handleRequest(context){
           const info=JSON.parse(recJSON);
 
           if(provider==="discord"){
-            // Discord user id'yi kesin alalım
             const me = await getDiscordMe(token.access_token);
             discordUserId = String(me.id || "");
-            // rol kontrolünü de dilersek:
             const roleCheck = await checkDiscordSubscription(token.access_token, info);
             isSub = !!roleCheck.hasRole;
           } else if(provider==="kick"){
@@ -363,6 +369,7 @@ async function handleRequest(context){
       return TEXT("Not Found",404);
     }
 
+    // /api dışı hiçbir şeyi handle etmiyoruz
     return TEXT("Not Found",404);
   }catch(err){
     console.error("KRITIK HATA:", err);
